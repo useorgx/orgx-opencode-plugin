@@ -1,0 +1,9 @@
+{
+  "plugin_name": "@useorgx/orgx-opencode-plugin",
+  "version": "0.1.0-alpha.0",
+  "manifest_fingerprint": "",
+  "signature": "",
+  "capabilities": ["gateway:drive", "plugin:heartbeat"],
+  "driver_ids": ["opencode"],
+  "notes": "fingerprint + signature are populated by the npm prepublish step; the dev build ships unsigned and gets 'degraded' status from the server."
+}
