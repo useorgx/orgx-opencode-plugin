@@ -36,6 +36,8 @@ import type {
   PeerToServerMessage,
 } from '@useorgx/orgx-gateway-sdk';
 
+import { recordWorkGraphEvent } from './workGraphOutbox';
+
 type OpenCodeState = {
   port: number;
   version: string;
@@ -63,6 +65,10 @@ export type OpenCodeDriverOptions = {
   skillRules?: () => Promise<SkillRule[]>;
   /** Timeout for each polling round, in ms. */
   pollTimeoutMs?: number;
+  /** Local Work Graph JSONL outbox path. Set false to disable. */
+  workGraphOutboxPath?: string | false;
+  /** Source client name for Work Graph reconciliation. */
+  sourceClient?: string;
 };
 
 export class OpenCodeDriver implements Driver {
@@ -144,6 +150,13 @@ export class OpenCodeDriver implements Driver {
     });
 
     const startedAt = new Date().toISOString();
+    await this.recordWorkGraph('task_started', task, context, {
+      sessionHandle,
+      timestamp: startedAt,
+      task_title_chars: task.title.length,
+      description_chars: task.description?.length ?? 0,
+      skill_count: task.skill_ids?.length ?? 0,
+    });
     yield {
       kind: 'task.started',
       run_id: context.run_id,
@@ -162,6 +175,11 @@ export class OpenCodeDriver implements Driver {
       }
 
       if (event.kind === 'error') {
+        await this.recordWorkGraph('task_failed', task, context, {
+          sessionHandle,
+          recoverable: event.recoverable === true,
+          reason_chars: event.message.length,
+        });
         yield {
           kind: 'task.failed',
           run_id: context.run_id,
@@ -173,6 +191,11 @@ export class OpenCodeDriver implements Driver {
 
       if (event.kind === 'assistant_completed') {
         tokens = event.tokens_used;
+        await this.recordWorkGraph('task_completed', task, context, {
+          sessionHandle,
+          tokens_used: tokens,
+          first_response_seen: Boolean(firstResponseAt),
+        });
         yield {
           kind: 'task.completed',
           run_id: context.run_id,
@@ -199,6 +222,15 @@ export class OpenCodeDriver implements Driver {
           event.kind === 'file_edit'
             ? `edit ${event.path} — ${event.summary}`
             : `call ${event.tool} — ${event.summary}`;
+        await this.recordWorkGraph('task_step', task, context, {
+          sessionHandle,
+          step_kind: event.kind,
+          evidence_ref:
+            event.kind === 'file_edit'
+              ? event.diff_ref ?? event.path
+              : event.ref ?? event.tool,
+          summary_chars: summary.length,
+        });
         yield {
           kind: 'task.step',
           run_id: context.run_id,
@@ -222,6 +254,12 @@ export class OpenCodeDriver implements Driver {
           const dedupe = `${rule.skill_id}:${rule.dedupe_fingerprint}:${context.run_id}`;
           if (seenFingerprints.has(dedupe)) continue;
           seenFingerprints.add(dedupe);
+          await this.recordWorkGraph('task_deviation', task, context, {
+            sessionHandle,
+            skill_id: rule.skill_id,
+            evidence_kind: rule.evidence_kind,
+            dedupe_key: dedupe,
+          });
           yield {
             kind: 'task.deviation',
             run_id: context.run_id,
@@ -249,6 +287,32 @@ export class OpenCodeDriver implements Driver {
   }
 
   // ───── Internals ──────────────────────────────────────────────────────
+
+  private async recordWorkGraph(
+    event: string,
+    task: DispatchableTask,
+    context: { run_id: string; idempotency_key: string },
+    summary: Record<string, unknown>
+  ): Promise<void> {
+    await recordWorkGraphEvent({
+      outboxPath: this.opts.workGraphOutboxPath,
+      sourceClient: this.opts.sourceClient ?? 'opencode',
+      event,
+      runId: context.run_id,
+      sessionHandle:
+        typeof summary.sessionHandle === 'string'
+          ? summary.sessionHandle
+          : undefined,
+      cwd:
+        typeof task.repo_path === 'string' && task.repo_path.trim()
+          ? task.repo_path
+          : undefined,
+      summary: {
+        ...summary,
+        idempotency_key: context.idempotency_key,
+      },
+    });
+  }
 
   private async resolvePort(): Promise<number> {
     if (this.portCache !== null) return this.portCache;

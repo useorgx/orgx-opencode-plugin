@@ -112,6 +112,65 @@ describe('OpenCodeDriver', () => {
     expect(kinds[kinds.length - 1]).toBe('task.completed');
   });
 
+  it('dispatch spools compact Work Graph events without raw summaries', async () => {
+    const { mkdtemp, readFile } = await import('fs/promises');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const dir = await mkdtemp(join(tmpdir(), 'ocd-work-graph-'));
+    const outbox = join(dir, 'events.jsonl');
+    const events = [
+      { kind: 'tool_call', tool: 'read_file', summary: 'billing.py' },
+      {
+        kind: 'file_edit',
+        path: 'tests/billing.py',
+        summary: 'replaced class-based with @parametrize',
+      },
+      { kind: 'assistant_completed', tokens_used: 3400 },
+    ];
+    restore = installFetch((url) => {
+      if (url.includes('/sessions') && !url.includes('/events')) {
+        return jsonResponse({ session_id: 'sess-abc' });
+      }
+      if (url.includes('/events')) return ndjsonResponse(events);
+      return new Response('not found', { status: 404 });
+    });
+
+    const d = new OpenCodeDriver({
+      statePath,
+      skillRules: async () => [],
+      workGraphOutboxPath: outbox,
+    });
+    for await (const _m of d.dispatch(
+      {
+        title: 'parametrize billing tests',
+        description: 'rewrite the tests',
+        repo_path: '/repo',
+        driver: 'opencode',
+      },
+      { run_id: 'r1', idempotency_key: 'k1' }
+    )) {
+      // consume generator
+    }
+
+    const lines = (await readFile(outbox, 'utf8')).trim().split('\n');
+    expect(lines).toHaveLength(4);
+    const records = lines.map((line) => JSON.parse(line));
+    expect(records.map((record) => record.event)).toEqual([
+      'task_started',
+      'task_step',
+      'task_step',
+      'task_completed',
+    ]);
+    expect(records[0]).toMatchObject({
+      source: 'orgx_opencode_plugin_runtime_hook',
+      source_client: 'opencode',
+      session_id: 'r1',
+      cwd: '/repo',
+    });
+    expect(JSON.stringify(records).includes('rewrite the tests')).toBe(false);
+    expect(JSON.stringify(records).includes('replaced class-based')).toBe(false);
+  });
+
   it('emits task.deviation when a skill rule matches a file_edit', async () => {
     const events = [
       {
