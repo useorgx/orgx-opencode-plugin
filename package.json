@@ -15,7 +15,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "plugin.manifest.json"],
+  "files": [
+    "dist",
+    "README.md",
+    "plugin.manifest.json"
+  ],
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
@@ -23,7 +27,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@useorgx/orgx-gateway-sdk": "https://github.com/useorgx/orgx-gateway-sdk#main"
+    "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#main"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -33,7 +37,7 @@
   "keywords": ["orgx", "opencode", "plugin-peer", "byok"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/useorgx/orgx-opencode-plugin.git"
+    "url": "git+https://github.com/useorgx/orgx-opencode-plugin.git"
   },
   "license": "UNLICENSED"
 }
