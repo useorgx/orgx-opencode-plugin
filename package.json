@@ -1,7 +1,7 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.0",
-  "description": "OrgX plugin peer for OpenCode. Opens its own authenticated WebSocket to OrgX server, receives task.dispatch intents, runs them in the user's OpenCode session (their subscription pays tokens), and posts execution_receipts + task.deviation back.",
+  "version": "0.1.0-alpha.1",
+  "description": "OrgX plugin peer for OpenCode with task dispatch, execution receipts, deviations, and passive Work Graph reconciliation events.",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

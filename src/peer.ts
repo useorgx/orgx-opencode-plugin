@@ -28,6 +28,8 @@ export type StartPeerOptions = {
   driver?: Driver;
   /** Skip the license heartbeat (tests). */
   skipHeartbeat?: boolean;
+  /** Local Work Graph JSONL outbox path. Set false to disable. */
+  workGraphOutboxPath?: string | false;
 };
 
 export type StartedPeer = {
@@ -40,6 +42,7 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
     opts.driver ??
     new OpenCodeDriver({
       skillRules: async () => fetchSkillRules(baseUrl, opts),
+      workGraphOutboxPath: opts.workGraphOutboxPath,
     });
 
   const manifest = await loadManifest();

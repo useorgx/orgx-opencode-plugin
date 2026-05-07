@@ -2,7 +2,7 @@
 
 OrgX plugin peer for **OpenCode**. One of three reference peers (alongside `orgx-claude-code-plugin` and `orgx-codex-plugin`) that implements [`@useorgx/orgx-gateway-sdk`](https://github.com/useorgx/orgx-gateway-sdk) Protocol v1.
 
-**The peer model:** this plugin opens its own authenticated WebSocket to OrgX server, receives `task.dispatch` messages, runs them in your local OpenCode session (your subscription pays the tokens), and posts receipts + deviations back. No central broker. If another peer goes down, this one keeps running.
+**The peer model:** this plugin opens its own authenticated WebSocket to OrgX server, receives `task.dispatch` messages, runs them in your local OpenCode session (your subscription pays the tokens), and posts receipts + deviations back. It also writes compact, redacted Work Graph events locally so audit-first reconciliation can preserve progress and fingerprints across signup. No central broker. If another peer goes down, this one keeps running.
 
 ## Install + run
 
@@ -44,6 +44,21 @@ The state file tells us which local port the daemon listens on. The driver then:
 3. `GET /sessions/:id/events` (NDJSON stream) — drives progress
 
 Each `file_edit` / `tool_call` event becomes a `task.step` wire message. Every skill rule fetched from `/api/v1/plan-skills` runs against the event stream; matches become `task.deviation` events (deduped per (run_id, skill_id, fingerprint)).
+
+## Work Graph reconciliation
+
+The driver writes passive event summaries to
+`~/.config/useorgx/wizard/hooks/events.jsonl` by default. Set
+`ORGX_WIZARD_HOOK_OUTBOX` to override the path, or pass
+`workGraphOutboxPath: false` when starting the peer programmatically to disable
+the local trail.
+
+These JSONL records are intentionally compact. They include source client,
+event kind, run/session handles, repo path, evidence refs, and counts; they do
+not include raw prompts, raw transcripts, API keys, tokens, or storage state.
+The OrgX wizard can later use them to detect missed OrgX writeback, generate a
+shareable public Work Graph readout, and hydrate the fingerprint into a signed-up
+workspace.
 
 ## License heartbeat
 
