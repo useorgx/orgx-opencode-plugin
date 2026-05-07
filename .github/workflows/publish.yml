@@ -1,0 +1,45 @@
+name: Publish to NPM
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Resolve dist tag
+        id: dist-tag
+        run: |
+          node - <<'NODE' >> "$GITHUB_OUTPUT"
+          const { readFileSync } = require("node:fs");
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          console.log(`tag=${pkg.version.includes("-") ? "alpha" : "latest"}`);
+          NODE
+
+      - name: Publish to npm
+        run: npm publish --access public --tag "${{ steps.dist-tag.outputs.tag }}"

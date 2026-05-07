@@ -93,6 +93,22 @@ npm test
 npm run build
 ```
 
+## Release
+
+Publishing is handled by `.github/workflows/publish.yml` when a GitHub release
+is published. The workflow uses npm trusted publishing/OIDC and automatically
+uses the `alpha` dist-tag for prerelease versions such as `0.1.0-alpha.1`.
+
+Configure the package trusted publisher on npmjs.com with:
+
+- Publisher: GitHub Actions
+- Organization or user: `useorgx`
+- Repository: `orgx-opencode-plugin`
+- Workflow filename: `publish.yml`
+
+The package `repository.url` must keep matching this GitHub repository exactly,
+otherwise npm trusted publishing can fail authentication.
+
 ## Status
 
 Alpha. Part of the Sovereign Execution initiative (`993cabeb`).
