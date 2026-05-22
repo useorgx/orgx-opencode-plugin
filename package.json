@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "README.md",
+    "LICENSE",
     "plugin.manifest.json"
   ],
   "scripts": {
@@ -39,5 +40,5 @@
     "type": "git",
     "url": "git+https://github.com/useorgx/orgx-opencode-plugin.git"
   },
-  "license": "UNLICENSED"
+  "license": "MIT"
 }
