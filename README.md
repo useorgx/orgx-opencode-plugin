@@ -6,7 +6,8 @@ OrgX plugin peer for **OpenCode**. One of three reference peers (alongside `orgx
 
 ## Install
 
-OpenCode can load the peer as a native plugin from `opencode.json`:
+OpenCode can load the peer as a native plugin from `opencode.json` once
+`@useorgx/orgx-opencode-plugin@0.1.0-alpha.2` or newer is published to npm:
 
 ```json
 {
@@ -24,7 +25,9 @@ opencode
 ```
 
 The native plugin starts the OrgX peer when the local OpenCode server connects.
-Set `ORGX_BASE_URL` only when testing against a non-production OrgX API.
+Set `ORGX_BASE_URL` only when testing against a non-production OrgX API. Until
+the npm package is updated, use the direct peer command below from a checked-out
+copy of this repository.
 
 You can also run the peer directly:
 
