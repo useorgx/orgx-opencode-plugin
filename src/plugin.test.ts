@@ -1,0 +1,122 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { createOrgXOpenCodePlugin } from './plugin';
+
+type PluginHooks = {
+  event: (input: { event: { type?: string } }) => Promise<void>;
+};
+
+function createLogger() {
+  return {
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+}
+
+async function loadHooks(
+  opts: Parameters<typeof createOrgXOpenCodePlugin>[0]
+): Promise<PluginHooks> {
+  const plugin = createOrgXOpenCodePlugin(opts);
+  return (await plugin({} as never)) as PluginHooks;
+}
+
+describe('OrgXOpenCodePlugin', () => {
+  it('starts the peer on server.connected with env config', async () => {
+    const stop = vi.fn();
+    const startPeer = vi.fn(async () => ({ stop }));
+    const logger = createLogger();
+    const hooks = await loadHooks({
+      startPeer,
+      logger,
+      env: {
+        ORGX_API_KEY: 'oxk_test',
+        ORGX_WORKSPACE_ID: 'workspace-123',
+        ORGX_BASE_URL: 'https://example.org',
+      },
+    });
+
+    await hooks.event({ event: { type: 'session.created' } });
+    expect(startPeer).not.toHaveBeenCalled();
+
+    await hooks.event({ event: { type: 'server.connected' } });
+    expect(startPeer).toHaveBeenCalledTimes(1);
+    expect(startPeer).toHaveBeenCalledWith({
+      apiKey: 'oxk_test',
+      workspaceId: 'workspace-123',
+      baseUrl: 'https://example.org',
+    });
+    expect(logger.log).toHaveBeenCalledWith(
+      '[orgx-opencode-plugin] native OpenCode plugin peer started'
+    );
+  });
+
+  it('does not start more than once', async () => {
+    const startPeer = vi.fn(async () => ({ stop: vi.fn() }));
+    const logger = createLogger();
+    const hooks = await loadHooks({
+      startPeer,
+      logger,
+      env: {
+        ORGX_API_KEY: 'oxk_test',
+        ORGX_WORKSPACE_ID: 'workspace-123',
+      },
+    });
+
+    await hooks.event({ event: { type: 'server.connected' } });
+    await hooks.event({ event: { type: 'server.connected' } });
+
+    expect(startPeer).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns once when required env config is missing', async () => {
+    const startPeer = vi.fn(async () => ({ stop: vi.fn() }));
+    const logger = createLogger();
+    const hooks = await loadHooks({
+      startPeer,
+      logger,
+      env: {},
+    });
+
+    await hooks.event({ event: { type: 'server.connected' } });
+    await hooks.event({ event: { type: 'server.connected' } });
+
+    expect(startPeer).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[orgx-opencode-plugin] native plugin loaded, but ORGX_API_KEY and ORGX_WORKSPACE_ID are required to connect'
+    );
+  });
+
+  it('logs start failures without throwing through OpenCode hooks', async () => {
+    const startPeer = vi.fn(async () => {
+      throw new Error('connect failed');
+    });
+    const logger = createLogger();
+    const hooks = await loadHooks({
+      startPeer,
+      logger,
+      env: {
+        ORGX_API_KEY: 'oxk_test',
+        ORGX_WORKSPACE_ID: 'workspace-123',
+      },
+    });
+
+    await expect(
+      hooks.event({ event: { type: 'server.connected' } })
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[orgx-opencode-plugin] failed to start peer',
+      'connect failed'
+    );
+  });
+
+  it('loads the package entry without eagerly importing the peer runtime', async () => {
+    const mod = await import('./index');
+
+    expect(typeof mod.default).toBe('function');
+    expect(typeof mod.OrgXOpenCodePlugin).toBe('function');
+    expect(typeof mod.startPeer).toBe('function');
+  });
+});

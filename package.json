@@ -31,11 +31,12 @@
     "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#main"
   },
   "devDependencies": {
+    "@opencode-ai/plugin": "^1.15.7",
     "@types/node": "^22.0.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   },
-  "keywords": ["orgx", "opencode", "plugin-peer", "byok"],
+  "keywords": ["orgx", "opencode", "opencode-plugin", "plugin-peer", "byok"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/useorgx/orgx-opencode-plugin.git"

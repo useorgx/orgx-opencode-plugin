@@ -36,7 +36,7 @@ import type {
   PeerToServerMessage,
 } from '@useorgx/orgx-gateway-sdk';
 
-import { recordWorkGraphEvent } from './workGraphOutbox';
+import { recordWorkGraphEvent } from './workGraphOutbox.js';
 
 type OpenCodeState = {
   port: number;
