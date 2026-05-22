@@ -105,9 +105,16 @@ Configure the package trusted publisher on npmjs.com with:
 - Organization or user: `useorgx`
 - Repository: `orgx-opencode-plugin`
 - Workflow filename: `publish.yml`
+- Allowed action: `npm publish`
+- Environment name: leave empty unless this workflow is later moved behind a GitHub environment
 
 The package `repository.url` must keep matching this GitHub repository exactly,
 otherwise npm trusted publishing can fail authentication.
+
+If the release workflow builds successfully but fails at `npm publish` with
+`E404` / "not found or you do not have permission", re-check the npm package's
+trusted publisher settings above. The workflow uses OIDC, so a local npm login
+is not used by GitHub Actions.
 
 ## Status
 
