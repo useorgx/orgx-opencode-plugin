@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "OrgX plugin peer for OpenCode with task dispatch, execution receipts, deviations, and passive Work Graph reconciliation events.",
   "type": "module",
   "main": "dist/index.js",
