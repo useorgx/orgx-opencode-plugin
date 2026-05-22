@@ -4,7 +4,29 @@ OrgX plugin peer for **OpenCode**. One of three reference peers (alongside `orgx
 
 **The peer model:** this plugin opens its own authenticated WebSocket to OrgX server, receives `task.dispatch` messages, runs them in your local OpenCode session (your subscription pays the tokens), and posts receipts + deviations back. It also writes compact, redacted Work Graph events locally so audit-first reconciliation can preserve progress and fingerprints across signup. No central broker. If another peer goes down, this one keeps running.
 
-## Install + run
+## Install
+
+OpenCode can load the peer as a native plugin from `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@useorgx/orgx-opencode-plugin"]
+}
+```
+
+Then start OpenCode with the OrgX credentials available in the environment:
+
+```bash
+export ORGX_API_KEY=oxk_...
+export ORGX_WORKSPACE_ID=<uuid>
+opencode
+```
+
+The native plugin starts the OrgX peer when the local OpenCode server connects.
+Set `ORGX_BASE_URL` only when testing against a non-production OrgX API.
+
+You can also run the peer directly:
 
 ```bash
 npm install -g @useorgx/orgx-opencode-plugin

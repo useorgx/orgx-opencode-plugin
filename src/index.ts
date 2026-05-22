@@ -1,7 +1,20 @@
-export { OpenCodeDriver, type OpenCodeDriverOptions } from './OpenCodeDriver';
-export { startPeer } from './peer';
+export { OpenCodeDriver, type OpenCodeDriverOptions } from './OpenCodeDriver.js';
+export {
+  default,
+  createOrgXOpenCodePlugin,
+  OrgXOpenCodePlugin,
+  type CreateOrgXOpenCodePluginOptions,
+} from './plugin.js';
+export type { StartedPeer, StartPeerOptions } from './peer.js';
 export {
   buildWorkGraphEventRecord,
   recordWorkGraphEvent,
   resolveWorkGraphOutboxPath,
-} from './workGraphOutbox';
+} from './workGraphOutbox.js';
+
+export async function startPeer(
+  opts: import('./peer.js').StartPeerOptions
+): Promise<import('./peer.js').StartedPeer> {
+  const peer = await import('./peer.js');
+  return peer.startPeer(opts);
+}

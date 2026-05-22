@@ -17,7 +17,7 @@ import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { OpenCodeDriver } from './OpenCodeDriver';
+import { OpenCodeDriver } from './OpenCodeDriver.js';
 
 export type StartPeerOptions = {
   apiKey: string;
