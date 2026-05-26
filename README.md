@@ -85,6 +85,18 @@ The OrgX wizard can later use them to detect missed OrgX writeback, generate a
 shareable public Work Graph readout, and hydrate the fingerprint into a signed-up
 workspace.
 
+Generate a local summary-only Work Graph report without credentials:
+
+```bash
+node scripts/orgx-work-graph-reconcile.mjs --output /tmp/orgx-work-graph-report.json
+```
+
+Post the report to OrgX only when explicitly requested:
+
+```bash
+ORGX_API_KEY=... node scripts/orgx-work-graph-reconcile.mjs --post
+```
+
 ## License heartbeat
 
 `startPeer()` posts `POST /api/v1/licenses/heartbeat` on boot and then every 7 days. The manifest is read from `plugin.manifest.json`; when the fingerprint + signature are missing (dev builds), the server marks the license `degraded` in permissive mode — read-only features keep working, but deviation ingestion 402s until a signed manifest ships.
