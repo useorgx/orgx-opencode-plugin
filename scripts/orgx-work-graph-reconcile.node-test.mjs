@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import {
   buildWorkGraphReport,
+  isDirectRun,
   loadHookOutboxRecords,
   main,
   normalizeSourceClient,
@@ -41,6 +43,19 @@ test('work graph reconciler parses split CLI values', () => {
   const args = parseArgs(['--outbox', '/tmp/events.jsonl', '--post']);
   assert.equal(args.outbox, '/tmp/events.jsonl');
   assert.equal(args.post, 'true');
+});
+
+test('work graph reconciler direct-run check resolves npm bin symlinks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'orgx-opencode-bin-'));
+  const target = join(dir, 'orgx-work-graph-reconcile.mjs');
+  const bin = join(dir, 'orgx-opencode-reconcile-hooks');
+  writeFileSync(target, '#!/usr/bin/env node\n', 'utf8');
+  symlinkSync(target, bin);
+
+  assert.equal(
+    isDirectRun({ invokedPath: bin, moduleUrl: pathToFileURL(target).href }),
+    true
+  );
 });
 
 test('work graph reconciler reads OpenCode hook outbox jsonl', async () => {

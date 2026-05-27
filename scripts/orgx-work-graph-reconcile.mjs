@@ -4,13 +4,14 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const WORK_GRAPH_SCHEMA_VERSION = "2.0.0";
 const WORK_GRAPH_FINGERPRINT_VERSION = "wgf_v1";
@@ -973,7 +974,16 @@ export async function main({
   return result;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function isDirectRun({ invokedPath = process.argv[1], moduleUrl = import.meta.url } = {}) {
+  if (!invokedPath) return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return moduleUrl === pathToFileURL(invokedPath).href;
+  }
+}
+
+if (isDirectRun()) {
   main().catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
