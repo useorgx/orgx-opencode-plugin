@@ -1,6 +1,7 @@
 import type { Plugin } from '@opencode-ai/plugin';
 
 import type { StartedPeer, StartPeerOptions } from './peer.js';
+import { hydrateContextPack } from './contextPackHydration.js';
 
 type StartPeer = (opts: StartPeerOptions) => Promise<StartedPeer>;
 type Env = Record<string, string | undefined>;
@@ -52,6 +53,8 @@ export function createOrgXOpenCodePlugin(
     event: async ({ event }: { event: { type?: string } }) => {
       if (event.type === 'server.connected') {
         await startIfConfigured();
+        // M adapter: hydrate the context pack (best-effort, never throws).
+        void hydrateContextPack(env);
       }
     },
   });
