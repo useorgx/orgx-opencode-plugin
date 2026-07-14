@@ -18,6 +18,10 @@ import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import { OpenCodeDriver } from './OpenCodeDriver.js';
+import {
+  capturePluginException,
+  initializePluginSentry,
+} from './sentry.js';
 
 // Protocol v2 requires a canonical proof-bearing ExecutionResult. Keep the
 // production peer on v1 until the driver can obtain that proof from OrgX.
@@ -50,6 +54,7 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
     });
 
   const manifest = await loadManifest();
+  initializePluginSentry(manifest.version);
 
   const client = new PeerClient({
     baseUrl: httpsToWss(baseUrl),
@@ -67,6 +72,7 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
       console.warn('[orgx-opencode-plugin] closed', { code, reason });
     },
     onError: (err) => {
+      capturePluginException(err, { stage: 'gateway_transport' });
       // eslint-disable-next-line no-console
       console.error('[orgx-opencode-plugin] error', err);
     },
