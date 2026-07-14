@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "description": "OrgX plugin peer for OpenCode with task dispatch, execution receipts, deviations, and passive Work Graph reconciliation events.",
   "type": "module",
   "main": "dist/index.js",
@@ -30,7 +30,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#main"
+    "@useorgx/orgx-gateway-sdk": "github:useorgx/orgx-gateway-sdk#bff98c55f523c7c9f08be52257f4199ac85650f9"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.15.7",
