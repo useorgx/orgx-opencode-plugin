@@ -1,6 +1,11 @@
 # orgx-opencode-plugin
 
-OrgX plugin peer for **OpenCode**. One of three reference peers (alongside `orgx-claude-code-plugin` and `orgx-codex-plugin`) that implements [`@useorgx/orgx-gateway-sdk`](https://github.com/useorgx/orgx-gateway-sdk) Protocol v1.
+OrgX plugin peer for **OpenCode**. One of three reference peers (alongside `orgx-claude-code-plugin` and `orgx-codex-plugin`) that uses [`@useorgx/orgx-gateway-sdk`](https://github.com/useorgx/orgx-gateway-sdk), pinned to a release that supports Gateway protocols v1 and v2.
+
+The production peer deliberately negotiates v1 today: a successful OpenCode
+session is not, by itself, a canonical `ProofPacket`. The protocol will move to
+v2 only when the driver can return the envelope-bound proof, receipt, artifact,
+cost, and outcome references required by `ExecutionResult`.
 
 **The peer model:** this plugin opens its own authenticated WebSocket to OrgX server, receives `task.dispatch` messages, runs them in your local OpenCode session (your subscription pays the tokens), and posts receipts + deviations back. It also writes compact, redacted Work Graph events locally so audit-first reconciliation can preserve progress and fingerprints across signup. No central broker. If another peer goes down, this one keeps running.
 

@@ -19,6 +19,10 @@ import { fileURLToPath } from 'url';
 
 import { OpenCodeDriver } from './OpenCodeDriver.js';
 
+// Protocol v2 requires a canonical proof-bearing ExecutionResult. Keep the
+// production peer on v1 until the driver can obtain that proof from OrgX.
+const GATEWAY_PROTOCOL_VERSION = 1;
+
 export type StartPeerOptions = {
   apiKey: string;
   workspaceId: string;
@@ -52,6 +56,7 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
     apiKey: opts.apiKey,
     workspaceId: opts.workspaceId,
     pluginId: '@useorgx/orgx-opencode-plugin',
+    protocolVersion: GATEWAY_PROTOCOL_VERSION,
     drivers: [driver],
     onOpen: () => {
       // eslint-disable-next-line no-console
