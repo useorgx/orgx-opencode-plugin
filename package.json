@@ -1,6 +1,9 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
   "version": "0.1.0-alpha.5",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "OrgX plugin peer for OpenCode with task dispatch, execution receipts, deviations, and passive Work Graph reconciliation events.",
   "type": "module",
   "main": "dist/index.js",
@@ -27,6 +30,7 @@
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "test": "vitest run && node --test scripts/*.node-test.mjs",
+    "prepublishOnly": "npm run type-check && npm test && npm run build",
     "start": "node dist/cli.js"
   },
   "dependencies": {
