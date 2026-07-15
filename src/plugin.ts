@@ -2,6 +2,7 @@ import type { Plugin } from '@opencode-ai/plugin';
 
 import type { StartedPeer, StartPeerOptions } from './peer.js';
 import { hydrateContextPack } from './contextPackHydration.js';
+import { capturePluginException } from './sentry.js';
 
 type StartPeer = (opts: StartPeerOptions) => Promise<StartedPeer>;
 type Env = Record<string, string | undefined>;
@@ -45,6 +46,7 @@ export function createOrgXOpenCodePlugin(
       logger.log('[orgx-opencode-plugin] native OpenCode plugin peer started');
     } catch (err) {
       peer = null;
+      capturePluginException(err, { stage: 'native_plugin_start' });
       logger.error('[orgx-opencode-plugin] failed to start peer', formatError(err));
     }
   }

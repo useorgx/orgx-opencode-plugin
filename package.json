@@ -30,6 +30,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
+    "@sentry/node": "10.65.0",
     "@useorgx/orgx-gateway-sdk": "github:useorgx/orgx-gateway-sdk#40871edeb9b92eaf4403c0ba7270a74204ba425f"
   },
   "devDependencies": {
@@ -38,7 +39,13 @@
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   },
-  "keywords": ["orgx", "opencode", "opencode-plugin", "plugin-peer", "byok"],
+  "keywords": [
+    "orgx",
+    "opencode",
+    "opencode-plugin",
+    "plugin-peer",
+    "byok"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/useorgx/orgx-opencode-plugin.git"

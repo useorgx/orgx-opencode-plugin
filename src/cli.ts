@@ -6,6 +6,7 @@
  */
 
 import { startPeer } from './peer.js';
+import { captureFatalPluginException } from './sentry.js';
 
 async function main() {
   const apiKey = process.env.ORGX_API_KEY;
@@ -34,7 +35,8 @@ async function main() {
   );
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
+  await captureFatalPluginException(err);
   // eslint-disable-next-line no-console
   console.error('[orgx-opencode-plugin] fatal', err);
   process.exit(1);
