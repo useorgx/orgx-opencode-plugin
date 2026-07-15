@@ -30,10 +30,10 @@ import { join } from 'path';
 
 import type {
   Driver,
+  DriverOutboundMessage,
   DriverStatus,
   DriverProbe,
   DispatchableTask,
-  PeerToServerMessage,
 } from '@useorgx/orgx-gateway-sdk';
 
 import { recordWorkGraphEvent } from './workGraphOutbox.js';
@@ -139,7 +139,7 @@ export class OpenCodeDriver implements Driver {
   async *dispatch(
     task: DispatchableTask,
     context: { run_id: string; idempotency_key: string }
-  ): AsyncIterable<PeerToServerMessage> {
+  ): AsyncIterable<DriverOutboundMessage> {
     const port = this.portCache ?? (await this.resolvePort());
     const sessionHandle = await this.createSession(port, {
       title: task.title,
