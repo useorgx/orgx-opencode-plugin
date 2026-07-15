@@ -30,7 +30,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@useorgx/orgx-gateway-sdk": "github:useorgx/orgx-gateway-sdk#bff98c55f523c7c9f08be52257f4199ac85650f9"
+    "@useorgx/orgx-gateway-sdk": "github:useorgx/orgx-gateway-sdk#40871edeb9b92eaf4403c0ba7270a74204ba425f"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.15.7",
