@@ -34,6 +34,46 @@ const PLUGIN_ID = 'orgx-opencode-plugin';
 // Protocol v2 requires a canonical proof-bearing ExecutionResult. Keep the
 // production peer on v1 until the driver can obtain that proof from OrgX.
 const GATEWAY_PROTOCOL_VERSION = 1;
+const MAX_TRANSPORT_LOG_LENGTH = 500;
+
+function redactTransportText(value: unknown): string {
+  return String(value)
+    .slice(0, MAX_TRANSPORT_LOG_LENGTH)
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replace(/\bbearer\.[A-Za-z0-9._~-]+/gi, 'bearer.[redacted]')
+    .replace(/\boxk_[A-Za-z0-9_-]+\b/g, 'oxk_[redacted]');
+}
+
+export function summarizeTransportError(error: unknown): {
+  name: string;
+  message: string;
+  code?: string | number;
+} {
+  const record =
+    error !== null && typeof error === 'object'
+      ? (error as Record<string, unknown>)
+      : undefined;
+  const name =
+    typeof record?.name === 'string' && record.name.trim()
+      ? redactTransportText(record.name)
+      : 'TransportError';
+  const message =
+    typeof record?.message === 'string' && record.message.trim()
+      ? redactTransportText(record.message)
+      : typeof error === 'string' && error.trim()
+        ? redactTransportText(error)
+        : 'Gateway transport failed';
+  const code = record?.code;
+
+  return {
+    name,
+    message,
+    ...(typeof code === 'number' ||
+    (typeof code === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(code))
+      ? { code }
+      : {}),
+  };
+}
 
 export type StartPeerOptions = {
   apiKey: string;
@@ -109,9 +149,12 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
       console.warn('[orgx-opencode-plugin] closed', { code, reason });
     },
     onError: (err) => {
-      capturePluginException(err, { stage: 'gateway_transport' });
+      const safeError = summarizeTransportError(err);
+      capturePluginException(new Error(`${safeError.name}: ${safeError.message}`), {
+        stage: 'gateway_transport',
+      });
       // eslint-disable-next-line no-console
-      console.error('[orgx-opencode-plugin] error', err);
+      console.error('[orgx-opencode-plugin] error', safeError);
     },
   });
   client.connect();

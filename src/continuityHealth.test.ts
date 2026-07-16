@@ -5,7 +5,7 @@ import { buildPluginContinuityHealth } from './continuityHealth.js';
 describe('buildPluginContinuityHealth', () => {
   it('publishes the cross-plugin health contract without conflating IDs', async () => {
     const health = await buildPluginContinuityHealth({
-      version: '0.1.0-alpha.6',
+      version: '0.1.0-alpha.7',
       authState: 'authenticated',
       endpoint: 'https://mcp.useorgx.com/mcp',
       outbox: {
@@ -21,9 +21,9 @@ describe('buildPluginContinuityHealth', () => {
       endpoint: 'https://mcp.useorgx.com/mcp',
       auth_state: 'authenticated',
       release: {
-        installed: '0.1.0-alpha.6',
-        source: '0.1.0-alpha.6',
-        deployed: '0.1.0-alpha.6',
+        installed: '0.1.0-alpha.7',
+        source: '0.1.0-alpha.7',
+        deployed: '0.1.0-alpha.7',
       },
       hooks: {
         reported: 4,
