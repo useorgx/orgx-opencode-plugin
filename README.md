@@ -34,6 +34,25 @@ Set `ORGX_BASE_URL` only when testing against a non-production OrgX API. Until
 the npm package is updated, use the direct peer command below from a checked-out
 copy of this repository.
 
+### Resumable questions
+
+OpenCode's native `question.asked` event can be routed to the same OrgX
+Attention queue used by Codex and Claude. This is opt-in because a visible
+OpenCode client can still answer its local prompt first:
+
+```bash
+export ORGX_REMOTE_ATTENTION=1
+export ORGX_INITIATIVE_ID=<uuid>
+export ORGX_API_KEY=oxk_...
+opencode
+```
+
+The plugin creates one durable attention record per native question, waits for
+all related answers, replies to the original OpenCode request through the v2
+local SDK, and records `resuming`, `resumed`, or `resume_failed` receipts. If
+the OpenCode process exits, the durable answer remains in OrgX but cannot be
+claimed as resumed until a client applies it again.
+
 You can also run the peer directly:
 
 ```bash

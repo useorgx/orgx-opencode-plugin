@@ -7,7 +7,8 @@
     "gateway:drive",
     "plugin:heartbeat",
     "plugin:runtime_hooks",
-    "work_graph:reconcile"
+    "work_graph:reconcile",
+    "attention:reply_in_place"
   ],
   "driver_ids": ["opencode"],
   "notes": "fingerprint + signature are populated by the npm prepublish step; the dev build ships unsigned and gets 'degraded' status from the server."
