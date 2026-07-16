@@ -37,6 +37,7 @@ import type {
 } from '@useorgx/orgx-gateway-sdk';
 
 import { recordWorkGraphEvent } from './workGraphOutbox.js';
+import { capturePluginException } from './sentry.js';
 
 type OpenCodeState = {
   port: number;
@@ -69,6 +70,8 @@ export type OpenCodeDriverOptions = {
   workGraphOutboxPath?: string | false;
   /** Source client name for Work Graph reconciliation. */
   sourceClient?: string;
+  /** Best-effort private replay after terminal events. */
+  replayWorkGraph?: () => Promise<void>;
 };
 
 export class OpenCodeDriver implements Driver {
@@ -186,6 +189,7 @@ export class OpenCodeDriver implements Driver {
           reason: event.message,
           recoverable: event.recoverable === true,
         };
+        await this.replayWorkGraph();
         return;
       }
 
@@ -213,6 +217,7 @@ export class OpenCodeDriver implements Driver {
           // job that backfills from task_type_baselines.
           cost_estimate_cents: 0,
         };
+        await this.replayWorkGraph();
         return;
       }
 
@@ -312,6 +317,14 @@ export class OpenCodeDriver implements Driver {
         idempotency_key: context.idempotency_key,
       },
     });
+  }
+
+  private async replayWorkGraph(): Promise<void> {
+    try {
+      await this.opts.replayWorkGraph?.();
+    } catch (error) {
+      capturePluginException(error, { stage: 'work_graph_replay' });
+    }
   }
 
   private async resolvePort(): Promise<number> {

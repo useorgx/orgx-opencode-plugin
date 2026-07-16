@@ -47,7 +47,7 @@ describe('startPeer', () => {
     });
 
     expect(sdk.options).toMatchObject({
-      pluginId: '@useorgx/orgx-opencode-plugin',
+      pluginId: 'orgx-opencode-plugin',
       protocolVersion: 1,
       drivers: [driver],
     });
