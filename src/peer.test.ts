@@ -22,7 +22,7 @@ vi.mock('@useorgx/orgx-gateway-sdk', () => ({
   },
 }));
 
-import { startPeer } from './peer.js';
+import { startPeer, summarizeTransportError } from './peer.js';
 
 describe('startPeer', () => {
   beforeEach(() => {
@@ -47,7 +47,7 @@ describe('startPeer', () => {
     });
 
     expect(sdk.options).toMatchObject({
-      pluginId: '@useorgx/orgx-opencode-plugin',
+      pluginId: 'orgx-opencode-plugin',
       protocolVersion: 1,
       drivers: [driver],
     });
@@ -55,5 +55,25 @@ describe('startPeer', () => {
 
     await peer.stop();
     expect(sdk.disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('summarizeTransportError', () => {
+  it('drops transport internals and redacts credentials in the message', () => {
+    const summary = summarizeTransportError({
+      name: 'ErrorEvent',
+      message: 'Unexpected server response: 401 Bearer oxk_test_secret',
+      target: {
+        request: {
+          header: 'Sec-WebSocket-Protocol: orgx.v1,bearer.oxk_test_secret',
+        },
+      },
+    });
+
+    expect(summary).toEqual({
+      name: 'ErrorEvent',
+      message: 'Unexpected server response: 401 Bearer [redacted]',
+    });
+    expect(JSON.stringify(summary)).not.toContain('test_secret');
   });
 });
