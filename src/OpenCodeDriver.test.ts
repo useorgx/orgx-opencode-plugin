@@ -164,11 +164,41 @@ describe('OpenCodeDriver', () => {
     expect(records[0]).toMatchObject({
       source: 'orgx_opencode_plugin_runtime_hook',
       source_client: 'opencode',
-      session_id: 'r1',
+      run_id: 'r1',
+      session_id: 'sess-abc',
       cwd: '/repo',
     });
+    expect(records[0]).not.toHaveProperty('turn_id');
     expect(JSON.stringify(records).includes('rewrite the tests')).toBe(false);
     expect(JSON.stringify(records).includes('replaced class-based')).toBe(false);
+  });
+
+  it('best-effort replays the private Work Graph after terminal events', async () => {
+    const replayWorkGraph = vi.fn(async () => undefined);
+    restore = installFetch((url) => {
+      if (url.includes('/sessions') && !url.includes('/events')) {
+        return jsonResponse({ session_id: 'sess-abc' });
+      }
+      if (url.includes('/events')) {
+        return ndjsonResponse([{ kind: 'assistant_completed', tokens_used: 25 }]);
+      }
+      return new Response('not found', { status: 404 });
+    });
+    const d = new OpenCodeDriver({
+      statePath,
+      skillRules: async () => [],
+      workGraphOutboxPath: false,
+      replayWorkGraph,
+    });
+
+    for await (const _m of d.dispatch(
+      { title: 'terminal replay', driver: 'opencode' },
+      { run_id: 'run-terminal', idempotency_key: 'key-terminal' }
+    )) {
+      // consume generator
+    }
+
+    expect(replayWorkGraph).toHaveBeenCalledOnce();
   });
 
   it('emits task.deviation when a skill rule matches a file_edit', async () => {

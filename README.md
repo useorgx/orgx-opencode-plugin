@@ -96,15 +96,26 @@ Generate a local summary-only Work Graph report without credentials:
 node scripts/orgx-work-graph-reconcile.mjs --output /tmp/orgx-work-graph-report.json
 ```
 
-Post the report to OrgX only when explicitly requested:
+Manually post the report to OrgX when you want an immediate replay:
 
 ```bash
 ORGX_API_KEY=... node scripts/orgx-work-graph-reconcile.mjs --post
 ```
 
+The runtime also replays summary-only Work Graph reports privately after
+terminal task events. The report fingerprint is the server idempotency key, so
+retries are safe and do not create duplicate work. No raw transcript is sent.
+
 ## License heartbeat
 
-`startPeer()` posts `POST /api/v1/licenses/heartbeat` on boot and then every 7 days. The manifest is read from `plugin.manifest.json`; when the fingerprint + signature are missing (dev builds), the server marks the license `degraded` in permissive mode — read-only features keep working, but deviation ingestion 402s until a signed manifest ships.
+`startPeer()` posts runtime presence every 20 seconds and a license heartbeat on
+boot and every 7 days. Presence includes the shared `plugin-health.v1` contract:
+endpoint/auth state, release identity, hook coverage, replay/dead-letter state,
+tool-profile parity, and entity inspection coverage. The manifest is read from
+`plugin.manifest.json`; when the fingerprint + signature are missing (dev
+builds), the server marks the license `degraded` in permissive mode — read-only
+features keep working, but deviation ingestion 402s until a signed manifest
+ships.
 
 ## Skills
 

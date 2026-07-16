@@ -148,6 +148,7 @@ function recordSortKey(record) {
   return [
     record.timestamp || "",
     record.source_client || "",
+    record.run_id || "",
     record.session_id || "",
     record.event || "",
     record.turn_id || "",
@@ -160,6 +161,7 @@ export function normalizeHookRecord(record, index = 0) {
   }
   const sourceClient = normalizeSourceClient(record.source_client);
   const sessionId = pickString(record.session_id, record.sessionId);
+  const runId = pickString(record.run_id, record.runId);
   const cwd = pickString(record.cwd, record.workspace, process.cwd());
   const timestamp = toIsoTimestamp(record.timestamp, "1970-01-01T00:00:00.000Z");
   const summary =
@@ -171,6 +173,7 @@ export function normalizeHookRecord(record, index = 0) {
     source: pickString(record.source, "orgx_runtime_hook"),
     source_client: sourceClient,
     event: pickString(record.event, "unknown"),
+    run_id: runId,
     session_id: sessionId || `unknown-session-${index + 1}`,
     turn_id: pickString(record.turn_id, record.turnId),
     cwd,
@@ -906,7 +909,7 @@ export async function postWorkGraphReport({
     },
     body: JSON.stringify({
       report,
-      public_share: true,
+      public_share: false,
       attach_artifact: false,
     }),
   });

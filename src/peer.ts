@@ -19,10 +19,18 @@ import { fileURLToPath } from 'url';
 
 import { OpenCodeDriver } from './OpenCodeDriver.js';
 import {
+  buildPluginContinuityHealth,
+  type ContinuityOutboxHealth,
+} from './continuityHealth.js';
+import {
   capturePluginException,
   initializePluginSentry,
 } from './sentry.js';
+import { createWorkGraphReplay } from './workGraphReplay.js';
 
+const PRESENCE_HEARTBEAT_MS = 20_000;
+const LICENSE_HEARTBEAT_MS = 7 * 24 * 60 * 60 * 1000;
+const PLUGIN_ID = 'orgx-opencode-plugin';
 // Protocol v2 requires a canonical proof-bearing ExecutionResult. Keep the
 // production peer on v1 until the driver can obtain that proof from OrgX.
 const GATEWAY_PROTOCOL_VERSION = 1;
@@ -38,6 +46,14 @@ export type StartPeerOptions = {
   skipHeartbeat?: boolean;
   /** Local Work Graph JSONL outbox path. Set false to disable. */
   workGraphOutboxPath?: string | false;
+  /** Stable installation identity used to join heartbeat observations. */
+  installationId?: string;
+  /** MCP endpoint advertised in Chronicle health. */
+  mcpEndpoint?: string;
+  /** Override local replay state for tests. */
+  continuityOutbox?: ContinuityOutboxHealth;
+  /** Disable terminal replay for tests or intentionally offline installs. */
+  autoReplayWorkGraph?: boolean;
 };
 
 export type StartedPeer = {
@@ -46,28 +62,49 @@ export type StartedPeer = {
 
 export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
   const baseUrl = opts.baseUrl ?? 'https://useorgx.com';
+  const manifest = await loadManifest();
+  initializePluginSentry(manifest.version);
+  const replayWorkGraph =
+    opts.autoReplayWorkGraph === false
+      ? undefined
+      : createWorkGraphReplay({
+          apiKey: opts.apiKey,
+          baseUrl,
+          workspaceId: opts.workspaceId,
+          outboxPath: opts.workGraphOutboxPath,
+        });
   const driver =
     opts.driver ??
     new OpenCodeDriver({
       skillRules: async () => fetchSkillRules(baseUrl, opts),
       workGraphOutboxPath: opts.workGraphOutboxPath,
+      replayWorkGraph,
     });
 
-  const manifest = await loadManifest();
-  initializePluginSentry(manifest.version);
+  let transportOnline = false;
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  const heartbeatPresence = () =>
+    postPresenceHeartbeat(baseUrl, opts, manifest, driver, transportOnline);
 
   const client = new PeerClient({
     baseUrl: httpsToWss(baseUrl),
     apiKey: opts.apiKey,
     workspaceId: opts.workspaceId,
-    pluginId: '@useorgx/orgx-opencode-plugin',
+    pluginId: PLUGIN_ID,
+    installationId: opts.installationId ?? defaultInstallationId(),
     protocolVersion: GATEWAY_PROTOCOL_VERSION,
     drivers: [driver],
     onOpen: () => {
+      transportOnline = true;
       // eslint-disable-next-line no-console
       console.log('[orgx-opencode-plugin] connected');
+      void heartbeatPresence().catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('[orgx-opencode-plugin] open heartbeat failed', err);
+      });
     },
     onClose: (code, reason) => {
+      transportOnline = false;
       // eslint-disable-next-line no-console
       console.warn('[orgx-opencode-plugin] closed', { code, reason });
     },
@@ -79,26 +116,41 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
   });
   client.connect();
 
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let licenseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   if (!opts.skipHeartbeat) {
-    await postHeartbeat(baseUrl, opts, manifest).catch((err) => {
+    await heartbeatPresence().catch((err) => {
       // eslint-disable-next-line no-console
-      console.warn('[orgx-opencode-plugin] initial heartbeat failed', err);
+      console.warn('[orgx-opencode-plugin] initial presence heartbeat failed', err);
     });
-    heartbeatTimer = setInterval(
+    presenceTimer = setInterval(() => {
+      void heartbeatPresence().catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('[orgx-opencode-plugin] presence heartbeat failed', err);
+      });
+    }, PRESENCE_HEARTBEAT_MS);
+    presenceTimer.unref?.();
+
+    await postLicenseHeartbeat(baseUrl, opts, manifest).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[orgx-opencode-plugin] initial license heartbeat failed', err);
+    });
+    licenseHeartbeatTimer = setInterval(
       () => {
-        void postHeartbeat(baseUrl, opts, manifest).catch((err) => {
+        void postLicenseHeartbeat(baseUrl, opts, manifest).catch((err) => {
           // eslint-disable-next-line no-console
           console.warn('[orgx-opencode-plugin] weekly heartbeat failed', err);
         });
       },
-      7 * 24 * 60 * 60 * 1000
+      LICENSE_HEARTBEAT_MS
     );
+    licenseHeartbeatTimer.unref?.();
   }
 
   return {
     stop: async () => {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (presenceTimer) clearInterval(presenceTimer);
+      if (licenseHeartbeatTimer) clearInterval(licenseHeartbeatTimer);
+      transportOnline = false;
       client.disconnect();
     },
   };
@@ -130,7 +182,62 @@ async function loadManifest(): Promise<Manifest> {
   }
 }
 
-async function postHeartbeat(
+async function postPresenceHeartbeat(
+  baseUrl: string,
+  opts: StartPeerOptions,
+  manifest: Manifest,
+  driver: Driver,
+  transportOnline: boolean
+): Promise<void> {
+  const detected = await driver.detect();
+  const authenticated = detected.authenticated === true;
+  const authState = authenticated
+    ? 'authenticated'
+    : detected.installed
+      ? 'unauthenticated'
+      : 'unavailable';
+  const continuityHealth = await buildPluginContinuityHealth({
+    version: manifest.version,
+    authState,
+    endpoint: opts.mcpEndpoint,
+    outbox: opts.continuityOutbox,
+  });
+  const r = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/gateway/heartbeat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${opts.apiKey}`,
+    },
+    body: JSON.stringify({
+      workspace_id: opts.workspaceId,
+      plugin_id: PLUGIN_ID,
+      installation_id: opts.installationId ?? defaultInstallationId(),
+      host_platform: process.platform,
+      drivers_installed: [driver.id],
+      gateway_version: manifest.version,
+      protocol_version: GATEWAY_PROTOCOL_VERSION,
+      plan_tier: null,
+      subscription_type: null,
+      subscription_active: authenticated,
+      metadata: {
+        runtime: 'peer',
+        transport_online: transportOnline,
+        runtime_online: true,
+        dispatch_ready:
+          transportOnline && detected.installed === true && authenticated,
+        auth_status: authState,
+        auth_method: null,
+        probe_version: detected.version ?? null,
+        continuity_health: continuityHealth,
+      },
+    }),
+  });
+  if (!r.ok) {
+    throw new Error(`presence heartbeat ${r.status}`);
+  }
+}
+
+async function postLicenseHeartbeat(
   baseUrl: string,
   opts: StartPeerOptions,
   manifest: Manifest
@@ -152,6 +259,10 @@ async function postHeartbeat(
   if (!r.ok) {
     throw new Error(`heartbeat ${r.status}: ${await r.text().catch(() => '')}`);
   }
+}
+
+function defaultInstallationId(): string {
+  return `${PLUGIN_ID}:${process.platform}:${process.env.USER ?? 'local'}`;
 }
 
 async function fetchSkillRules(

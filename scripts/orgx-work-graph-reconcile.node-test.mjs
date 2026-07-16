@@ -12,6 +12,7 @@ import {
   main,
   normalizeSourceClient,
   parseArgs,
+  postWorkGraphReport,
 } from './orgx-work-graph-reconcile.mjs';
 
 const NOW = '2026-05-07T12:00:00.000Z';
@@ -22,7 +23,8 @@ function hookRecord(overrides = {}) {
     source: 'orgx_opencode_plugin_runtime_hook',
     source_client: 'opencode',
     event: 'task_step',
-    session_id: 'run-1',
+    run_id: 'run-1',
+    session_id: 'session-1',
     cwd: '/Users/example/Code/orgx',
     timestamp: NOW,
     summary: {
@@ -37,6 +39,25 @@ function hookRecord(overrides = {}) {
 test('work graph reconciler normalizes shared client names', () => {
   assert.equal(normalizeSourceClient('claude_code'), 'claude-code');
   assert.equal(normalizeSourceClient('open-claw'), 'openclaw');
+});
+
+test('work graph reconciler posts reports privately with server dedupe', async () => {
+  let requestBody;
+  await postWorkGraphReport({
+    report: { idempotency_key: 'stable-fingerprint' },
+    baseUrl: 'https://example.org',
+    apiKey: 'oxk_test_only',
+    fetchImpl: async (_url, init) => {
+      requestBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(requestBody.public_share, false);
+  assert.equal(requestBody.report.idempotency_key, 'stable-fingerprint');
 });
 
 test('work graph reconciler parses split CLI values', () => {
