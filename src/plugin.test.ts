@@ -26,14 +26,21 @@ describe('OrgXOpenCodePlugin', () => {
     const stop = vi.fn();
     const startPeer = vi.fn(async () => ({ stop }));
     const logger = createLogger();
+    const env = {
+      ORGX_API_KEY: 'oxk_test',
+      ORGX_GATEWAY_KEY: 'oxk_alias',
+      ORGX_WORKSPACE_ID: 'workspace-123',
+      ORGX_BASE_URL: 'https://example.org',
+    };
     const hooks = await loadHooks({
       startPeer,
       logger,
-      env: {
-        ORGX_API_KEY: 'oxk_test',
-        ORGX_WORKSPACE_ID: 'workspace-123',
-        ORGX_BASE_URL: 'https://example.org',
-      },
+      env,
+    });
+
+    expect(env).toEqual({
+      ORGX_WORKSPACE_ID: 'workspace-123',
+      ORGX_BASE_URL: 'https://example.org',
     });
 
     await hooks.event({ event: { type: 'session.created' } });

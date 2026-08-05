@@ -7,16 +7,17 @@
 
 import { startPeer } from './peer.js';
 import { captureFatalPluginException } from './sentry.js';
+import { captureGatewayCredential } from './childProcessEnv.js';
 
 async function main() {
-  const apiKey = process.env.ORGX_API_KEY;
+  const apiKey = captureGatewayCredential(process.env);
   const workspaceId = process.env.ORGX_WORKSPACE_ID;
   const baseUrl = process.env.ORGX_BASE_URL ?? 'https://useorgx.com';
 
   if (!apiKey || !workspaceId) {
     // eslint-disable-next-line no-console
     console.error(
-      'Missing ORGX_API_KEY and/or ORGX_WORKSPACE_ID. Export both and retry.'
+      'Missing ORGX_API_KEY (or ORGX_GATEWAY_KEY) and/or ORGX_WORKSPACE_ID. Export both and retry.'
     );
     process.exit(2);
   }
