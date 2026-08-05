@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0-alpha.9",
   "publishConfig": {
     "access": "public"
   },
@@ -30,6 +30,7 @@
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "test": "vitest run && node --test scripts/*.node-test.mjs",
+    "pack": "mkdir -p artifacts && npm pack --pack-destination artifacts",
     "prepublishOnly": "npm run type-check && npm test && npm run build",
     "start": "node dist/cli.js"
   },

@@ -8,6 +8,7 @@ import {
   bridgeOpenCodeQuestions,
   parseQuestionRequest,
 } from './attentionBridge.js';
+import { captureGatewayCredential } from './childProcessEnv.js';
 
 type StartPeer = (opts: StartPeerOptions) => Promise<StartedPeer>;
 type Env = Record<string, string | undefined>;
@@ -24,6 +25,7 @@ export function createOrgXOpenCodePlugin(
 ): Plugin {
   const start = opts.startPeer ?? defaultStartPeer;
   const env = opts.env ?? process.env;
+  const apiKey = captureGatewayCredential(env);
   const logger = opts.logger ?? console;
   let peer: Promise<StartedPeer> | null = null;
   let warnedMissingConfig = false;
@@ -33,7 +35,6 @@ export function createOrgXOpenCodePlugin(
   async function startIfConfigured() {
     if (peer) return;
 
-    const apiKey = env.ORGX_API_KEY;
     const workspaceId = env.ORGX_WORKSPACE_ID;
     const baseUrl = env.ORGX_BASE_URL;
 
@@ -63,14 +64,13 @@ export function createOrgXOpenCodePlugin(
       if (event.type === 'server.connected') {
         await startIfConfigured();
         // M adapter: hydrate the context pack (best-effort, never throws).
-        void hydrateContextPack(env);
+        void hydrateContextPack({ ...env, ORGX_API_KEY: apiKey });
       }
 
       if (env.ORGX_REMOTE_ATTENTION !== '1') return;
       const questionRequest = parseQuestionRequest(event);
       if (!questionRequest || activeAttention.has(questionRequest.id)) return;
 
-      const apiKey = env.ORGX_API_KEY;
       const initiativeId = env.ORGX_INITIATIVE_ID;
       if (!apiKey || !initiativeId) {
         if (!warnedMissingAttentionConfig) {
