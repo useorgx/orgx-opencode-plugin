@@ -110,11 +110,16 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+function autoFlushDisabled(value: string | undefined): boolean {
+  return ['off', 'false', '0'].includes(String(value ?? '').trim().toLowerCase());
+}
+
 function triggerFlush(
   env: Env,
   spawnImpl: SpawnLike,
   queueDir?: string
 ): boolean {
+  if (autoFlushDisabled(env.ORGX_SESSION_SUMMARY_AUTO_FLUSH)) return false;
   try {
     const args = ['hooks', 'flush', '--background', '--limit=25'];
     if (queueDir) args.push(`--queue=${queueDir}`);

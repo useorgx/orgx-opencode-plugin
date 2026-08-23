@@ -105,6 +105,34 @@ describe('OpenCode session summary bridge', () => {
     }
   });
 
+  it('keeps an offline run queued without starting fallback delivery', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orgx-opencode-bridge-'));
+    const hookPath = join(dir, 'orgx-session-summary.mjs');
+    await writeFile(hookPath, 'export async function main() {}\n', 'utf8');
+    const spawnImpl = vi.fn();
+    try {
+      const result = await bridgeOpenCodeSessionSummary({
+        nativeEvent: 'session.idle',
+        payload: { properties: { sessionID: 'session-offline' } },
+        directory: '/work/repo',
+        hookPath,
+        env: {
+          PATH: process.env.PATH,
+          ORGX_SESSION_SUMMARY_AUTO_FLUSH: 'off',
+        },
+        importHook: async () => ({
+          main: async () => ({ ok: true, queued: true, delivery_triggered: false }),
+        }),
+        spawnImpl,
+      });
+
+      expect(result.fallback_delivery_triggered).toBe(false);
+      expect(spawnImpl).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('reports the installed-hook dependency when unavailable', async () => {
     await expect(
       bridgeOpenCodeSessionSummary({
