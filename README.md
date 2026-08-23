@@ -49,6 +49,10 @@ durability, acknowledgement, retry, privacy normalization, and AWR delivery.
 If the Wizard hook is absent or incompatible, the plugin records that capture
 is unavailable and continues without inventing a receipt.
 
+Set `ORGX_SESSION_SUMMARY_AUTO_FLUSH=off` for a deliberately offline run. The
+adapter and Wizard retain the capture without starting a delivery worker;
+`orgx-wizard hooks flush` can replay it later with server acknowledgement.
+
 ### V2 beta canary
 
 The production plugin stays on OpenCode's stable plugin contract. Set
