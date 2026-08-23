@@ -4,6 +4,8 @@ import { createOrgXOpenCodePlugin } from './plugin';
 
 type PluginHooks = {
   event: (input: { event: { type?: string } }) => Promise<void>;
+  'tool.execute.before': (input: Record<string, unknown>) => Promise<void>;
+  'tool.execute.after': (input: Record<string, unknown>) => Promise<void>;
 };
 
 function createLogger() {
@@ -17,7 +19,11 @@ function createLogger() {
 async function loadHooks(
   opts: Parameters<typeof createOrgXOpenCodePlugin>[0]
 ): Promise<PluginHooks> {
-  const plugin = createOrgXOpenCodePlugin(opts);
+  const plugin = createOrgXOpenCodePlugin({
+    ...(opts ?? {}),
+    bridgeSessionSummary:
+      opts?.bridgeSessionSummary ?? vi.fn(async () => ({ ok: true })),
+  });
   return (await plugin({} as never)) as PluginHooks;
 }
 
@@ -125,5 +131,32 @@ describe('OrgXOpenCodePlugin', () => {
     expect(typeof mod.default).toBe('function');
     expect(typeof mod.OrgXOpenCodePlugin).toBe('function');
     expect(typeof mod.startPeer).toBe('function');
+  });
+
+  it('observes session and tool lifecycle through the shared summary bridge', async () => {
+    const bridgeSessionSummary = vi.fn(async () => ({ ok: true }));
+    const hooks = await loadHooks({
+      bridgeSessionSummary,
+      env: {},
+      logger: createLogger(),
+    });
+
+    await hooks.event({ event: { type: 'session.idle' } });
+    await hooks['tool.execute.before']({
+      sessionID: 'session-1',
+      callID: 'call-1',
+      tool: 'bash',
+    });
+    await hooks['tool.execute.after']({
+      sessionID: 'session-1',
+      callID: 'call-1',
+      tool: 'bash',
+    });
+
+    expect(bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)).toEqual([
+      'session.idle',
+      'tool.execute.before',
+      'tool.execute.after',
+    ]);
   });
 });

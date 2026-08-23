@@ -11,6 +11,7 @@ export {
   recordWorkGraphEvent,
   resolveWorkGraphOutboxPath,
 } from './workGraphOutbox.js';
+export { inspectOpenCodeV2Canary } from './v2Canary.js';
 
 export async function startPeer(
   opts: import('./peer.js').StartPeerOptions
