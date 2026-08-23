@@ -4,7 +4,7 @@
  *
  * Usage (CLI or programmatic):
  *
- *   import { startPeer } from '@useorgx/orgx-opencode-plugin';
+ *   import { startPeer } from '@useorgx/orgx-opencode-plugin/sdk';
  *   await startPeer({
  *     apiKey: process.env.ORGX_API_KEY,
  *     workspaceId: process.env.ORGX_WORKSPACE_ID,
