@@ -95,7 +95,7 @@ orgx-opencode-plugin
 Or programmatic:
 
 ```ts
-import { startPeer } from '@useorgx/orgx-opencode-plugin';
+import { startPeer } from '@useorgx/orgx-opencode-plugin/sdk';
 
 const peer = await startPeer({
   apiKey: process.env.ORGX_API_KEY!,

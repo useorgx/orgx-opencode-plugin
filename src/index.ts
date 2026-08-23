@@ -1,21 +1,3 @@
-export { OpenCodeDriver, type OpenCodeDriverOptions } from './OpenCodeDriver.js';
-export {
-  default,
-  createOrgXOpenCodePlugin,
-  OrgXOpenCodePlugin,
-  type CreateOrgXOpenCodePluginOptions,
-} from './plugin.js';
-export type { StartedPeer, StartPeerOptions } from './peer.js';
-export {
-  buildWorkGraphEventRecord,
-  recordWorkGraphEvent,
-  resolveWorkGraphOutboxPath,
-} from './workGraphOutbox.js';
-export { inspectOpenCodeV2Canary } from './v2Canary.js';
-
-export async function startPeer(
-  opts: import('./peer.js').StartPeerOptions
-): Promise<import('./peer.js').StartedPeer> {
-  const peer = await import('./peer.js');
-  return peer.startPeer(opts);
-}
+// OpenCode invokes every package-root export as a plugin factory. Keep this
+// entry point deliberately closed-world; library helpers live at ./sdk.
+export { OrgXOpenCodePlugin } from './plugin.js';

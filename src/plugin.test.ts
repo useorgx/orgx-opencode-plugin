@@ -125,11 +125,18 @@ describe('OrgXOpenCodePlugin', () => {
     );
   });
 
-  it('loads the package entry without eagerly importing the peer runtime', async () => {
+  it('exposes exactly one callable plugin from the package root', async () => {
     const mod = await import('./index');
 
-    expect(typeof mod.default).toBe('function');
+    expect(Object.keys(mod)).toEqual(['OrgXOpenCodePlugin']);
     expect(typeof mod.OrgXOpenCodePlugin).toBe('function');
+  });
+
+  it('keeps peer and driver helpers on the explicit SDK entry', async () => {
+    const mod = await import('./sdk');
+
+    expect(typeof mod.OrgXOpenCodePlugin).toBe('function');
+    expect(typeof mod.OpenCodeDriver).toBe('function');
     expect(typeof mod.startPeer).toBe('function');
   });
 
