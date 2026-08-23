@@ -19,6 +19,7 @@ describe('buildPluginContinuityHealth', () => {
     expect(health).toEqual({
       schema_version: 'plugin-health.v1',
       endpoint: 'https://mcp.useorgx.com/mcp',
+      source_client: 'opencode',
       auth_state: 'authenticated',
       release: {
         installed: '0.1.0-alpha.7',
@@ -26,14 +27,18 @@ describe('buildPluginContinuityHealth', () => {
         deployed: '0.1.0-alpha.7',
       },
       hooks: {
-        reported: 4,
-        expected: 4,
+        reported: 8,
+        expected: 8,
         terminal_passive: true,
         events: [
-          'task_started',
-          'task_step',
-          'task_completed',
-          'task_failed',
+          'session.created',
+          'message.updated:user',
+          'tool.execute.before',
+          'tool.execute.after',
+          'permission.asked',
+          'session.idle',
+          'session.error',
+          'session.deleted',
         ],
       },
       outbox: {
@@ -41,6 +46,12 @@ describe('buildPluginContinuityHealth', () => {
         pending: 0,
         dead_letters: 0,
         last_replay_at: '2026-07-15T12:00:00.000Z',
+      },
+      capture: {
+        adapter: 'wizard_session_summary',
+        terminal_run_event: 'session.idle',
+        terminal_session_event: 'session.deleted',
+        raw_content_included: false,
       },
       capabilities: {
         profile: 'opencode',

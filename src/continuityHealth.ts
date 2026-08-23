@@ -116,14 +116,19 @@ export async function buildPluginContinuityHealth({
 }) {
   const outboxHealth = outbox ?? (await inspectContinuityOutbox());
   const hookEvents = [
-    'task_started',
-    'task_step',
-    'task_completed',
-    'task_failed',
+    'session.created',
+    'message.updated:user',
+    'tool.execute.before',
+    'tool.execute.after',
+    'permission.asked',
+    'session.idle',
+    'session.error',
+    'session.deleted',
   ];
   return {
     schema_version: 'plugin-health.v1',
     endpoint,
+    source_client: 'opencode',
     auth_state: authState,
     release: {
       installed: version,
@@ -137,6 +142,12 @@ export async function buildPluginContinuityHealth({
       events: hookEvents,
     },
     outbox: outboxHealth,
+    capture: {
+      adapter: 'wizard_session_summary',
+      terminal_run_event: 'session.idle',
+      terminal_session_event: 'session.deleted',
+      raw_content_included: false,
+    },
     capabilities: {
       profile: 'opencode',
       profile_tools: 33,
