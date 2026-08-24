@@ -11,13 +11,14 @@ cost, and outcome references required by `ExecutionResult`.
 
 ## Install
 
-OpenCode can load the peer as a native plugin from `opencode.json` once
-`@useorgx/orgx-opencode-plugin@0.1.0-alpha.2` or newer is published to npm:
+OpenCode can load the current prerelease peer as a native plugin from
+`opencode.json`. Select the `alpha` distribution tag explicitly so a fresh
+install resolves the newest tested prerelease instead of npm's default tag:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@useorgx/orgx-opencode-plugin"]
+  "plugin": ["@useorgx/orgx-opencode-plugin@alpha"]
 }
 ```
 
@@ -84,8 +85,8 @@ claimed as resumed until a client applies it again.
 You can also run the peer directly:
 
 ```bash
-npm install -g @useorgx/orgx-opencode-plugin
-# or pnpm: pnpm add -g @useorgx/orgx-opencode-plugin
+npm install -g @useorgx/orgx-opencode-plugin@alpha
+# or pnpm: pnpm add -g @useorgx/orgx-opencode-plugin@alpha
 
 export ORGX_API_KEY=oxk_...
 export ORGX_WORKSPACE_ID=<uuid>
