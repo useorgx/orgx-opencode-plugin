@@ -44,9 +44,11 @@ run receipt without pretending the multi-turn OpenCode conversation ended.
 `session.deleted` remains the whole-session terminal boundary.
 
 The adapter observes session, user-message, permission, and tool lifecycle
-events. It never forwards message bodies, prompts, tool arguments or results,
-error text, transcripts, credentials, or model content. The Wizard owns queue
-durability, acknowledgement, retry, privacy normalization, and AWR delivery.
+events. It sends each non-synthetic user message to the local Wizard hook for
+bounded Work Episode capture: at most 12 redacted excerpts, 600 characters
+each. It does not send tool arguments, tool results, error text, transcripts,
+credentials, or model output. The Wizard owns queue durability,
+acknowledgement, retry, privacy normalization, and AWR delivery.
 If the Wizard hook is absent or incompatible, the plugin records that capture
 is unavailable and continues without inventing a receipt.
 

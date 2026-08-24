@@ -15,6 +15,7 @@ describe('OpenCode session summary bridge', () => {
     expect(canonicalOpenCodeEvent('session.created')).toBe('SessionStart');
     expect(canonicalOpenCodeEvent('session.idle')).toBe('RunEnd');
     expect(canonicalOpenCodeEvent('session.deleted')).toBe('SessionEnd');
+    expect(canonicalOpenCodeEvent('chat.message')).toBe('UserPromptSubmit');
     expect(
       canonicalOpenCodeEvent('message.updated', {
         properties: { info: { role: 'user' } },
@@ -27,14 +28,15 @@ describe('OpenCode session summary bridge', () => {
     ).toBeNull();
   });
 
-  it('drops messages, tool arguments/results, and errors at the adapter boundary', () => {
+  it('keeps bounded user intent while dropping tool arguments/results and errors', () => {
     const result = sanitizeOpenCodePayload(
       {
         sessionID: 'session-1',
         callID: 'call-2',
         tool: 'bash',
         duration: 44.8,
-        message: 'private message',
+        prompt: 'Implement the verified work ledger.',
+        parentSessionID: 'parent-1',
         args: { command: 'private command' },
         output: 'private output',
         error: 'private error',
@@ -49,16 +51,22 @@ describe('OpenCode session summary bridge', () => {
       tool_use_id: 'call-2',
       duration_ms: 45,
       permission_mode: undefined,
+      prompt: 'Implement the verified work ledger.',
+      root_session_id: undefined,
+      parent_session_id: 'parent-1',
+      resumed_from_session_id: undefined,
+      action_effect: 'execute',
+      action_target: undefined,
     });
     const serialized = JSON.stringify(result);
     for (const secret of [
-      'private message',
       'private command',
       'private output',
       'private error',
     ]) {
       expect(serialized).not.toContain(secret);
     }
+    expect(serialized).toContain('Implement the verified work ledger.');
   });
 
   it('delegates to Wizard and starts fallback delivery for a run end', async () => {
@@ -86,7 +94,11 @@ describe('OpenCode session summary bridge', () => {
       });
 
       expect(main).toHaveBeenCalledWith({
-        argv: ['--event=RunEnd', '--source_client=opencode'],
+        argv: [
+          '--event=RunEnd',
+          '--source_client=opencode',
+          '--work_episode_capture=bounded',
+        ],
         env: { PATH: process.env.PATH },
         stdinText: JSON.stringify({
           session_id: 'session-1',

@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn } from 'child_process';
 import { access } from 'fs/promises';
 import { homedir } from 'os';
-import { join } from 'path';
+import { basename, join, resolve } from 'path';
 import { pathToFileURL } from 'url';
 
 type Env = Record<string, string | undefined>;
@@ -11,6 +11,7 @@ type ImportHook = (url: string) => Promise<{
 }>;
 
 const EVENT_MAP: Record<string, string> = {
+  'chat.message': 'UserPromptSubmit',
   'session.created': 'SessionStart',
   'session.idle': 'RunEnd',
   'session.error': 'RunEnd',
@@ -43,6 +44,53 @@ function duration(...values: unknown[]): number | undefined {
   return value === undefined ? undefined : Math.max(0, Math.round(value));
 }
 
+function safeActionDescriptor(
+  root: Record<string, unknown>,
+  properties: Record<string, unknown>,
+  directory: string
+): Record<string, string | undefined> {
+  const tool = string(root.tool, root.tool_name, properties.tool);
+  if (!tool) return {};
+  const args = record(root.args ?? properties.args);
+  const normalized = tool.toLowerCase();
+  const actionEffect = /read|grep|search|find|glob/.test(normalized)
+    ? 'inspect'
+    : /write|edit|patch|notebook/.test(normalized)
+      ? 'change'
+      : /bash|shell|terminal|exec/.test(normalized)
+        ? 'execute'
+        : 'invoke';
+  const filePath = string(
+    args.file_path,
+    args.filePath,
+    args.path,
+    args.notebook_path
+  );
+  if (filePath) {
+    const absolute = resolve(directory, filePath);
+    const rootPath = resolve(directory);
+    return {
+      action_effect: actionEffect,
+      action_target: absolute.startsWith(`${rootPath}/`)
+        ? `file:${absolute.slice(rootPath.length + 1)}`
+        : `file:${basename(absolute)}`,
+    };
+  }
+  const command = string(args.command, root.command);
+  const executable = command?.trim().split(/\s+/)[0];
+  const commandName = executable ? basename(executable) : undefined;
+  return {
+    action_effect: actionEffect,
+    action_target:
+      commandName &&
+      /^(?:pnpm|npm|npx|node|git|rg|grep|find|python|python3|pytest|vitest|jest|tsc|curl|gh|make|echo)$/.test(
+        commandName
+      )
+        ? `command:${commandName}`
+        : undefined,
+  };
+}
+
 export function canonicalOpenCodeEvent(
   nativeEvent: string,
   payload?: unknown
@@ -55,7 +103,7 @@ export function canonicalOpenCodeEvent(
   return EVENT_MAP[nativeEvent] ?? null;
 }
 
-/** Keep only the bounded metadata admitted by the Wizard summary hook. */
+/** Keep bounded intent/lineage plus metadata admitted by the Wizard hook. */
 export function sanitizeOpenCodePayload(
   payload: unknown,
   directory: string
@@ -63,6 +111,7 @@ export function sanitizeOpenCodePayload(
   const root = record(payload);
   const properties = record(root.properties);
   const info = record(properties.info);
+  const action = safeActionDescriptor(root, properties, directory);
   return {
     session_id: string(
       root.sessionID,
@@ -85,6 +134,19 @@ export function sanitizeOpenCodePayload(
     tool_use_id: string(root.callID, properties.callID),
     duration_ms: duration(root.duration_ms, root.duration, properties.duration),
     permission_mode: string(root.permission, properties.permission),
+    prompt: string(root.prompt, root.message, properties.prompt),
+    root_session_id: string(root.rootSessionID, root.root_session_id),
+    parent_session_id: string(
+      root.parentSessionID,
+      root.parent_session_id,
+      properties.parentID,
+      info.parentID
+    ),
+    resumed_from_session_id: string(
+      root.resumedFromSessionID,
+      root.resumed_from_session_id
+    ),
+    ...action,
   };
 }
 
@@ -169,6 +231,7 @@ export async function bridgeOpenCodeSessionSummary({
     argv: [
       `--event=${canonicalEvent}`,
       '--source_client=opencode',
+      '--work_episode_capture=bounded',
       ...(queueDir ? [`--queue_dir=${queueDir}`] : []),
     ],
     env,

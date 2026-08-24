@@ -82,6 +82,24 @@ export function createOrgXOpenCodePlugin(
     };
 
     return {
+      'chat.message': async (messageInput, output) => {
+        const prompt = output.parts
+          .filter(
+            (part): part is typeof part & { type: 'text'; text: string } =>
+              part.type === 'text' &&
+              typeof (part as { text?: unknown }).text === 'string' &&
+              (part as { synthetic?: unknown }).synthetic !== true &&
+              (part as { ignored?: unknown }).ignored !== true
+          )
+          .map((part) => part.text)
+          .join('\n')
+          .trim();
+        await capture('chat.message', {
+          sessionID: messageInput.sessionID,
+          messageID: messageInput.messageID,
+          ...(prompt ? { prompt } : {}),
+        });
+      },
       event: async ({ event }) => {
         await capture(event.type, event);
 
@@ -139,8 +157,11 @@ export function createOrgXOpenCodePlugin(
           })
           .finally(() => activeAttention.delete(questionRequest.id));
       },
-      'tool.execute.before': async (toolInput) => {
-        await capture('tool.execute.before', toolInput);
+      'tool.execute.before': async (toolInput, output) => {
+        await capture('tool.execute.before', {
+          ...toolInput,
+          args: output?.args,
+        });
       },
       'tool.execute.after': async (toolInput) => {
         await capture('tool.execute.after', toolInput);

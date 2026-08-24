@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createOrgXOpenCodePlugin } from './plugin';
 
 type PluginHooks = {
+  'chat.message': (
+    input: { sessionID: string; messageID?: string },
+    output: { parts: Array<Record<string, unknown>> }
+  ) => Promise<void>;
   event: (input: { event: { type?: string } }) => Promise<void>;
   'tool.execute.before': (input: Record<string, unknown>) => Promise<void>;
   'tool.execute.after': (input: Record<string, unknown>) => Promise<void>;
@@ -149,6 +153,16 @@ describe('OrgXOpenCodePlugin', () => {
     });
 
     await hooks.event({ event: { type: 'session.idle' } });
+    await hooks['chat.message'](
+      { sessionID: 'session-1', messageID: 'message-1' },
+      {
+        parts: [
+          { type: 'text', text: 'Implement the work episode.' },
+          { type: 'text', text: 'hidden', synthetic: true },
+          { type: 'file', url: 'private-file' },
+        ],
+      }
+    );
     await hooks['tool.execute.before']({
       sessionID: 'session-1',
       callID: 'call-1',
@@ -162,8 +176,14 @@ describe('OrgXOpenCodePlugin', () => {
 
     expect(bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)).toEqual([
       'session.idle',
+      'chat.message',
       'tool.execute.before',
       'tool.execute.after',
     ]);
+    expect(bridgeSessionSummary.mock.calls[1][0].payload).toEqual({
+      sessionID: 'session-1',
+      messageID: 'message-1',
+      prompt: 'Implement the work episode.',
+    });
   });
 });
