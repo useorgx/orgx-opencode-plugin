@@ -22,6 +22,8 @@ const EVENT_MAP: Record<string, string> = {
   'tool.execute.failed': 'PostToolUseFailure',
 };
 
+const MAX_CAPTURED_PROMPT_CHARACTERS = 600;
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -42,6 +44,19 @@ function duration(...values: unknown[]): number | undefined {
     (candidate) => typeof candidate === 'number' && Number.isFinite(candidate)
   ) as number | undefined;
   return value === undefined ? undefined : Math.max(0, Math.round(value));
+}
+
+function workEpisodeCaptureEnabled(value: string | undefined): boolean {
+  return ['bounded', 'on', 'true', '1'].includes(
+    String(value ?? '').trim().toLowerCase()
+  );
+}
+
+function boundedPrompt(value: unknown): string | undefined {
+  const prompt = string(value);
+  return prompt
+    ? Array.from(prompt).slice(0, MAX_CAPTURED_PROMPT_CHARACTERS).join('')
+    : undefined;
 }
 
 function safeActionDescriptor(
@@ -93,20 +108,16 @@ function safeActionDescriptor(
 
 export function canonicalOpenCodeEvent(
   nativeEvent: string,
-  payload?: unknown
+  _payload?: unknown
 ): string | null {
-  if (nativeEvent === 'message.updated') {
-    const properties = record(record(payload).properties);
-    const info = record(properties.info);
-    return info.role === 'user' ? 'UserPromptSubmit' : null;
-  }
   return EVENT_MAP[nativeEvent] ?? null;
 }
 
 /** Keep bounded intent/lineage plus metadata admitted by the Wizard hook. */
 export function sanitizeOpenCodePayload(
   payload: unknown,
-  directory: string
+  directory: string,
+  env: Env = process.env
 ): Record<string, unknown> {
   const root = record(payload);
   const properties = record(root.properties);
@@ -134,7 +145,9 @@ export function sanitizeOpenCodePayload(
     tool_use_id: string(root.callID, properties.callID),
     duration_ms: duration(root.duration_ms, root.duration, properties.duration),
     permission_mode: string(root.permission, properties.permission),
-    prompt: string(root.prompt, root.message, properties.prompt),
+    prompt: workEpisodeCaptureEnabled(env.ORGX_SESSION_WORK_EPISODE_CAPTURE)
+      ? boundedPrompt(string(root.prompt, root.message, properties.prompt))
+      : undefined,
     root_session_id: string(root.rootSessionID, root.root_session_id),
     parent_session_id: string(
       root.parentSessionID,
@@ -231,11 +244,10 @@ export async function bridgeOpenCodeSessionSummary({
     argv: [
       `--event=${canonicalEvent}`,
       '--source_client=opencode',
-      '--work_episode_capture=bounded',
       ...(queueDir ? [`--queue_dir=${queueDir}`] : []),
     ],
     env,
-    stdinText: JSON.stringify(sanitizeOpenCodePayload(payload, directory)),
+    stdinText: JSON.stringify(sanitizeOpenCodePayload(payload, directory, env)),
   });
   const fallbackDeliveryTriggered =
     result.queued === true && result.delivery_triggered !== true

@@ -13,6 +13,8 @@ async function main() {
   const apiKey = captureGatewayCredential(process.env);
   const workspaceId = process.env.ORGX_WORKSPACE_ID;
   const baseUrl = process.env.ORGX_BASE_URL ?? 'https://useorgx.com';
+  const openCodeServerUrl =
+    process.env.OPENCODE_SERVER_URL ?? process.env.ORGX_OPENCODE_SERVER_URL;
 
   if (!apiKey || !workspaceId) {
     // eslint-disable-next-line no-console
@@ -22,7 +24,13 @@ async function main() {
     process.exit(2);
   }
 
-  const peer = await startPeer({ apiKey, workspaceId, baseUrl });
+  const peer = await startPeer({
+    apiKey,
+    workspaceId,
+    baseUrl,
+    openCodeServerUrl,
+    openCodeDirectory: process.cwd(),
+  });
 
   const shutdown = async () => {
     await peer.stop();

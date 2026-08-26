@@ -32,7 +32,7 @@ describe('buildPluginContinuityHealth', () => {
         terminal_passive: true,
         events: [
           'session.created',
-          'message.updated:user',
+          'chat.message',
           'tool.execute.before',
           'tool.execute.after',
           'permission.asked',

@@ -20,12 +20,52 @@ describe('OpenCode session summary bridge', () => {
       canonicalOpenCodeEvent('message.updated', {
         properties: { info: { role: 'user' } },
       })
-    ).toBe('UserPromptSubmit');
+    ).toBeNull();
     expect(
       canonicalOpenCodeEvent('message.updated', {
         properties: { info: { role: 'assistant' } },
       })
     ).toBeNull();
+  });
+
+  it('captures one prompt for the native chat.message then message.updated lifecycle', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orgx-opencode-bridge-'));
+    const hookPath = join(dir, 'orgx-session-summary.mjs');
+    await writeFile(hookPath, 'export async function main() {}\n', 'utf8');
+    const main = vi.fn(async () => ({ ok: true }));
+    try {
+      const promptResult = await bridgeOpenCodeSessionSummary({
+        nativeEvent: 'chat.message',
+        payload: {
+          sessionID: 'session-1',
+          messageID: 'message-1',
+          prompt: 'One native user prompt.',
+        },
+        directory: '/work/repo',
+        hookPath,
+        importHook: async () => ({ main }),
+      });
+      const updateResult = await bridgeOpenCodeSessionSummary({
+        nativeEvent: 'message.updated',
+        payload: {
+          properties: {
+            info: { id: 'message-1', sessionID: 'session-1', role: 'user' },
+          },
+        },
+        directory: '/work/repo',
+        hookPath,
+        importHook: async () => ({ main }),
+      });
+
+      expect(promptResult).toMatchObject({
+        ok: true,
+        canonical_event: 'UserPromptSubmit',
+      });
+      expect(updateResult).toEqual({ ok: true, skipped: 'unsupported_event' });
+      expect(main).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('keeps bounded user intent while dropping tool arguments/results and errors', () => {
@@ -41,7 +81,8 @@ describe('OpenCode session summary bridge', () => {
         output: 'private output',
         error: 'private error',
       },
-      '/work/repo'
+      '/work/repo',
+      { ORGX_SESSION_WORK_EPISODE_CAPTURE: 'bounded' }
     );
     expect(result).toEqual({
       session_id: 'session-1',
@@ -67,6 +108,33 @@ describe('OpenCode session summary bridge', () => {
       expect(serialized).not.toContain(secret);
     }
     expect(serialized).toContain('Implement the verified work ledger.');
+  });
+
+  it('defaults to metadata-only capture and honors explicit bounded consent', () => {
+    const payload = {
+      sessionID: 'session-consent',
+      prompt: 'Only retain this when bounded capture is enabled.',
+    };
+
+    expect(sanitizeOpenCodePayload(payload, '/work/repo').prompt).toBeUndefined();
+    expect(
+      sanitizeOpenCodePayload(payload, '/work/repo', {
+        ORGX_SESSION_WORK_EPISODE_CAPTURE: '1',
+      }).prompt
+    ).toBe('Only retain this when bounded capture is enabled.');
+  });
+
+  it('bounds explicitly enabled prompt capture to 600 Unicode characters', () => {
+    const prompt = `${'a'.repeat(599)}🧠${'b'.repeat(100)}`;
+
+    const sanitized = sanitizeOpenCodePayload(
+      { sessionID: 'session-bounded', prompt },
+      '/work/repo',
+      { ORGX_SESSION_WORK_EPISODE_CAPTURE: 'bounded' }
+    );
+
+    expect(Array.from(sanitized.prompt as string)).toHaveLength(600);
+    expect(sanitized.prompt).toBe(`${'a'.repeat(599)}🧠`);
   });
 
   it('delegates to Wizard and starts fallback delivery for a run end', async () => {
@@ -97,7 +165,6 @@ describe('OpenCode session summary bridge', () => {
         argv: [
           '--event=RunEnd',
           '--source_client=opencode',
-          '--work_episode_capture=bounded',
         ],
         env: { PATH: process.env.PATH },
         stdinText: JSON.stringify({
@@ -112,6 +179,43 @@ describe('OpenCode session summary bridge', () => {
         expect.objectContaining({ detached: true, stdio: 'ignore' })
       );
       expect(unref).toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves Work Episode consent to the explicit Wizard environment setting', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orgx-opencode-bridge-'));
+    const hookPath = join(dir, 'orgx-session-summary.mjs');
+    await writeFile(hookPath, 'export async function main() {}\n', 'utf8');
+    const main = vi.fn(async () => ({ ok: true }));
+    try {
+      await bridgeOpenCodeSessionSummary({
+        nativeEvent: 'chat.message',
+        payload: {
+          sessionID: 'session-consent',
+          prompt: 'Retain this bounded intent.',
+        },
+        directory: '/work/repo',
+        hookPath,
+        env: {
+          PATH: process.env.PATH,
+          ORGX_SESSION_WORK_EPISODE_CAPTURE: 'bounded',
+        },
+        importHook: async () => ({ main }),
+      });
+
+      expect(main).toHaveBeenCalledTimes(1);
+      expect(main.mock.calls[0][0].argv).toEqual([
+        '--event=UserPromptSubmit',
+        '--source_client=opencode',
+      ]);
+      expect(main.mock.calls[0][0].env.ORGX_SESSION_WORK_EPISODE_CAPTURE).toBe(
+        'bounded'
+      );
+      expect(JSON.parse(main.mock.calls[0][0].stdinText).prompt).toBe(
+        'Retain this bounded intent.'
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
