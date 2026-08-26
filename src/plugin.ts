@@ -1,5 +1,3 @@
-import { resolve } from 'node:path';
-
 import type { Plugin } from '@opencode-ai/plugin';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 
@@ -23,6 +21,7 @@ import {
 } from './attentionBridge.js';
 import { captureGatewayCredential } from './childProcessEnv.js';
 import { bridgeOpenCodeSessionSummary } from './sessionSummaryBridge.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 type StartPeer = (opts: StartPeerOptions) => Promise<StartedPeer>;
 type Env = Record<string, string | undefined>;
@@ -66,8 +65,14 @@ function nativeSessionId(value: unknown): string | undefined {
   return undefined;
 }
 
-function contextHydrationKey(projectDir: string, sessionId: string): string {
-  return `${resolve(projectDir)}\0${sessionId}`;
+function contextHydrationKey(
+  projectDir: string,
+  sessionId: string
+): string | null {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+  return normalizedProjectDir
+    ? `${normalizedProjectDir}\0${sessionId}`
+    : null;
 }
 
 export type CreateOrgXOpenCodePluginOptions = {
@@ -146,12 +151,16 @@ export function createOrgXOpenCodePlugin(
     projectDir: string,
     sessionId: string
   ): Promise<ContextPackHydrationResult> {
+    const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+    if (!normalizedProjectDir) {
+      return { ok: true, skipped: 'project_directory_unavailable' };
+    }
     const runtimeHydration = readRuntimeSessionHydration(
-      projectDir,
+      normalizedProjectDir,
       sessionId
     );
     if (runtimeHydration) return runtimeHydration;
-    const key = contextHydrationKey(projectDir, sessionId);
+    const key = contextHydrationKey(normalizedProjectDir, sessionId)!;
     const existing = contextHydrations.get(key);
     if (existing) return existing;
     const hydration = hydrate({
@@ -161,7 +170,7 @@ export function createOrgXOpenCodePlugin(
         ORGX_API_KEY: apiKey,
         ORGX_BASE_URL: safeBaseUrl ?? undefined,
       },
-      projectDir,
+      projectDir: normalizedProjectDir,
       sessionId,
     }).catch((error) => {
         capturePluginException(error, { stage: 'context_pack_hydration' });
@@ -175,12 +184,14 @@ export function createOrgXOpenCodePlugin(
   }
 
   return async (input) => {
+    const exactProjectDir = normalizeAbsoluteHostPath(input.directory);
+    const projectDir = exactProjectDir ?? input.directory;
     const capture = async (nativeEvent: string, payload: unknown) => {
       try {
         await bridgeSessionSummary({
           nativeEvent,
           payload,
-          directory: input.directory,
+          directory: projectDir,
           env,
         });
       } catch (error) {
@@ -195,7 +206,7 @@ export function createOrgXOpenCodePlugin(
       'experimental.chat.system.transform': async (chatInput, output) => {
         const sessionId = nativeSessionId(chatInput);
         if (!sessionId) return;
-        const result = await hydrateProjectContext(input.directory, sessionId);
+        const result = await hydrateProjectContext(projectDir, sessionId);
         const additionalContext = result.additionalContext;
         if (
           typeof additionalContext !== 'string' ||
@@ -212,7 +223,7 @@ export function createOrgXOpenCodePlugin(
       'chat.message': async (messageInput, output) => {
         const sessionId = nativeSessionId(messageInput);
         if (sessionId) {
-          await hydrateProjectContext(input.directory, sessionId);
+          await hydrateProjectContext(projectDir, sessionId);
         }
         const prompt = output.parts
           .filter(
@@ -234,22 +245,28 @@ export function createOrgXOpenCodePlugin(
       event: async ({ event }) => {
         const sessionId = nativeSessionId(event);
         if (event.type === 'session.created' && sessionId) {
-          await hydrateProjectContext(input.directory, sessionId);
+          await hydrateProjectContext(projectDir, sessionId);
         }
         await capture(event.type, event);
 
         if (event.type === 'server.connected') {
-          await startIfConfigured(
-            input.serverUrl.toString(),
-            resolve(input.directory)
-          );
+          if (!exactProjectDir) {
+            logger.warn(
+              '[orgx-opencode-plugin] native plugin requires an absolute project directory'
+            );
+          } else {
+            await startIfConfigured(
+              input.serverUrl.toString(),
+              exactProjectDir
+            );
+          }
         }
         if (event.type === 'session.deleted' && sessionId) {
-          const key = contextHydrationKey(input.directory, sessionId);
-          await contextHydrations.get(key);
+          const key = contextHydrationKey(projectDir, sessionId);
+          if (key) await contextHydrations.get(key);
           const clearance = await clearContext({
             env,
-            projectDir: input.directory,
+            projectDir,
             sessionId,
           }).catch((error) => {
             capturePluginException(error, {
@@ -262,8 +279,8 @@ export function createOrgXOpenCodePlugin(
               `[orgx-opencode-plugin] session context clear unverified: ${clearance.reason}`
             );
           }
-          contextHydrations.delete(key);
-          clearRuntimeSessionHydration(input.directory, sessionId);
+          if (key) contextHydrations.delete(key);
+          clearRuntimeSessionHydration(projectDir, sessionId);
         }
 
         if (env.ORGX_REMOTE_ATTENTION !== '1') return;
@@ -284,7 +301,7 @@ export function createOrgXOpenCodePlugin(
         activeAttention.add(questionRequest.id);
         const nativeClient = createOpencodeClient({
           baseUrl: input.serverUrl.toString(),
-          directory: input.directory,
+          directory: projectDir,
         });
         void bridgeOpenCodeQuestions({
           request: questionRequest,
@@ -317,7 +334,7 @@ export function createOrgXOpenCodePlugin(
       'tool.execute.before': async (toolInput, output) => {
         const sessionId = nativeSessionId(toolInput);
         if (sessionId) {
-          await hydrateProjectContext(input.directory, sessionId);
+          await hydrateProjectContext(projectDir, sessionId);
         }
         await capture('tool.execute.before', {
           ...toolInput,
@@ -327,7 +344,7 @@ export function createOrgXOpenCodePlugin(
       'tool.execute.after': async (toolInput) => {
         const sessionId = nativeSessionId(toolInput);
         if (sessionId) {
-          await hydrateProjectContext(input.directory, sessionId);
+          await hydrateProjectContext(projectDir, sessionId);
         }
         await capture('tool.execute.after', toolInput);
       },

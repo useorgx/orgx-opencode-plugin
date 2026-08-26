@@ -9,7 +9,7 @@
 
 import { promises as fs } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import {
   createOpencodeClient,
@@ -46,6 +46,7 @@ import {
 } from './runtimeSessionContext.js';
 import { recordWorkGraphEvent } from './workGraphOutbox.js';
 import type { ActivationAcceptanceExpectation } from './activationAcceptance.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 type Env = Record<string, string | undefined>;
 type DriverContext = {
@@ -236,10 +237,11 @@ export class OpenCodeDriver implements Driver {
       };
       return;
     }
-    if (
-      task.repo_path !== undefined &&
-      (typeof task.repo_path !== 'string' || !isAbsolute(task.repo_path))
-    ) {
+    const normalizedRepoPath =
+      task.repo_path === undefined
+        ? null
+        : normalizeAbsoluteHostPath(task.repo_path);
+    if (task.repo_path !== undefined && !normalizedRepoPath) {
       yield {
         kind: 'task.failed',
         run_id: context.run_id,
@@ -249,7 +251,7 @@ export class OpenCodeDriver implements Driver {
       return;
     }
     const directory = resolve(
-      task.repo_path ?? this.opts.defaultDirectory ?? process.cwd()
+      normalizedRepoPath ?? this.opts.defaultDirectory ?? process.cwd()
     );
     let active: ActiveRun | undefined;
     let startedAt = new Date().toISOString();

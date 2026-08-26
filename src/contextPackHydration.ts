@@ -38,6 +38,7 @@ import {
   type SessionContextClearance,
   type SpawnLike,
 } from './wizardContextBridge.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 export {
   MAX_SESSION_WORK_CONTEXT_BYTES,
@@ -303,9 +304,9 @@ export function resolvePrivateContextStateDirectory({
   stateRoot?: string;
 }): string | null {
   const normalizedSessionId = pickString(sessionId);
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
   if (
-    !projectDir ||
-    !isAbsolute(projectDir) ||
+    !normalizedProjectDir ||
     !normalizedSessionId ||
     byteLength(normalizedSessionId) > 512
   ) {
@@ -317,7 +318,7 @@ export function resolvePrivateContextStateDirectory({
       : null
     : defaultContextStateRoot(env);
   if (!root || dirname(root) === root) return null;
-  const relativeToProject = relative(resolve(projectDir), root);
+  const relativeToProject = relative(normalizedProjectDir, root);
   if (
     relativeToProject === '' ||
     (relativeToProject !== '..' &&
@@ -327,7 +328,7 @@ export function resolvePrivateContextStateDirectory({
     return null;
   }
   const digest = createHash('sha256')
-    .update(resolve(projectDir))
+    .update(normalizedProjectDir)
     .update('\0')
     .update(normalizedSessionId)
     .digest('hex');
@@ -578,8 +579,9 @@ export async function hydrateContextPack({
   spawnImpl?: SpawnLike;
   now?: Date;
 } = {}): Promise<ContextPackHydrationResult> {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
   try {
-    if (!projectDir || !isAbsolute(projectDir)) {
+    if (!normalizedProjectDir) {
       return { ok: true, skipped: 'project_directory_unavailable' };
     }
     if (!pickString(sessionId) || byteLength(pickString(sessionId)!) > 512) {
@@ -587,7 +589,7 @@ export async function hydrateContextPack({
     }
     const privateState: PrivateContextState = {
       env,
-      projectDir,
+      projectDir: normalizedProjectDir,
       sessionId: pickString(sessionId)!,
       stateRoot,
     };
@@ -595,7 +597,7 @@ export async function hydrateContextPack({
     if (!config) {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: true, skipped: 'context_pack_unconfigured' },
         spawnImpl,
@@ -614,7 +616,7 @@ export async function hydrateContextPack({
       if (!response.ok) {
         return clearUnverifiedContext({
           env,
-          projectDir,
+          projectDir: normalizedProjectDir,
           privateState,
           result: {
             ok: true,
@@ -631,7 +633,7 @@ export async function hydrateContextPack({
     } catch (error) {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: {
           ok: true,
@@ -649,7 +651,7 @@ export async function hydrateContextPack({
     if (responseText === null) {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: true, skipped: 'context_pack_response_too_large' },
         spawnImpl,
@@ -661,7 +663,7 @@ export async function hydrateContextPack({
     } catch {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: true, skipped: 'context_pack_response_invalid' },
         spawnImpl,
@@ -672,7 +674,7 @@ export async function hydrateContextPack({
     if (!isRecord(data)) {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: true, skipped: 'context_pack_response_invalid' },
         spawnImpl,
@@ -689,7 +691,7 @@ export async function hydrateContextPack({
       return clearDefinitiveContext({
         contextPackPath,
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         reason: 'not_returned',
         spawnImpl,
@@ -702,7 +704,7 @@ export async function hydrateContextPack({
       return clearDefinitiveContext({
         contextPackPath,
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         reason: 'context_invalid',
         spawnImpl,
@@ -711,7 +713,7 @@ export async function hydrateContextPack({
 
     const activation = await activateSessionWorkContext({
       context,
-      projectDir,
+      projectDir: normalizedProjectDir,
       sessionId: privateState.sessionId,
       env,
       spawnImpl,
@@ -720,7 +722,7 @@ export async function hydrateContextPack({
       await removePendingContext(privateState);
     } else {
       const clearance = await clearSessionWorkContext({
-        projectDir,
+        projectDir: normalizedProjectDir,
         sessionId: privateState.sessionId,
         env,
         spawnImpl,
@@ -739,16 +741,16 @@ export async function hydrateContextPack({
       additionalContext: additionalContextFor(context, activation),
     };
   } catch {
-    if (projectDir && isAbsolute(projectDir) && pickString(sessionId)) {
+    if (normalizedProjectDir && pickString(sessionId)) {
       const privateState: PrivateContextState = {
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         sessionId: pickString(sessionId)!,
         stateRoot,
       };
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: false, skipped: 'context_pack_hydration_failed' },
         spawnImpl,
@@ -785,8 +787,9 @@ export async function activateProvidedSessionWorkContext({
   spawnImpl?: SpawnLike;
   now?: Date;
 } = {}): Promise<ContextPackHydrationResult> {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
   try {
-    if (!projectDir || !isAbsolute(projectDir)) {
+    if (!normalizedProjectDir) {
       return { ok: true, skipped: 'project_directory_unavailable' };
     }
     const normalizedId = pickString(sessionId);
@@ -795,7 +798,7 @@ export async function activateProvidedSessionWorkContext({
     }
     const privateState: PrivateContextState = {
       env,
-      projectDir,
+      projectDir: normalizedProjectDir,
       sessionId: normalizedId,
       stateRoot,
     };
@@ -807,7 +810,7 @@ export async function activateProvidedSessionWorkContext({
     ) {
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: true, skipped: 'context_pack_response_invalid' },
         spawnImpl,
@@ -829,7 +832,7 @@ export async function activateProvidedSessionWorkContext({
     );
     const activation = await activateSessionWorkContext({
       context,
-      projectDir,
+      projectDir: normalizedProjectDir,
       sessionId: normalizedId,
       env,
       spawnImpl,
@@ -838,7 +841,7 @@ export async function activateProvidedSessionWorkContext({
       await removePendingContext(privateState);
     } else {
       const clearance = await clearSessionWorkContext({
-        projectDir,
+        projectDir: normalizedProjectDir,
         sessionId: normalizedId,
         env,
         spawnImpl,
@@ -857,16 +860,16 @@ export async function activateProvidedSessionWorkContext({
       additionalContext: additionalContextFor(context, activation),
     };
   } catch {
-    if (projectDir && isAbsolute(projectDir) && pickString(sessionId)) {
+    if (normalizedProjectDir && pickString(sessionId)) {
       const privateState: PrivateContextState = {
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         sessionId: pickString(sessionId)!,
         stateRoot,
       };
       return clearUnverifiedContext({
         env,
-        projectDir,
+        projectDir: normalizedProjectDir,
         privateState,
         result: { ok: false, skipped: 'context_pack_hydration_failed' },
         spawnImpl,

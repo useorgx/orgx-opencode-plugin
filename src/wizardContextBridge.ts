@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { isAbsolute, resolve } from 'node:path';
+
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 export type Env = Record<string, string | undefined>;
 
@@ -183,11 +184,8 @@ function parseActivationAcknowledgement(
     ) {
       return { activated: false, reason: 'wizard_unverified' };
     }
-    if (
-      typeof value.cwd !== 'string' ||
-      !isAbsolute(value.cwd) ||
-      value.cwd !== projectDir
-    ) {
+    const acknowledgedCwd = normalizeAbsoluteHostPath(value.cwd);
+    if (!acknowledgedCwd || acknowledgedCwd !== projectDir) {
       return { activated: false, reason: 'wizard_cwd_mismatch' };
     }
     return { activated: true, reason: 'wizard_activated' };
@@ -213,11 +211,8 @@ function parseClearAcknowledgement(
     ) {
       return { cleared: false, reason: 'wizard_unverified' };
     }
-    if (
-      typeof value.cwd !== 'string' ||
-      !isAbsolute(value.cwd) ||
-      value.cwd !== projectDir
-    ) {
+    const acknowledgedCwd = normalizeAbsoluteHostPath(value.cwd);
+    if (!acknowledgedCwd || acknowledgedCwd !== projectDir) {
       return { cleared: false, reason: 'wizard_cwd_mismatch' };
     }
     return {
@@ -321,11 +316,11 @@ export async function activateSessionWorkContext({
   spawnImpl?: SpawnLike;
 } = {}): Promise<SessionContextActivation> {
   const normalizedId = normalizedSessionId(sessionId);
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
   if (
     !isRecord(context) ||
     context.schema_version !== 'orgx-session-work-context/v1' ||
-    !projectDir ||
-    !isAbsolute(projectDir) ||
+    !normalizedProjectDir ||
     !normalizedId
   ) {
     return { activated: false, reason: 'context_invalid' };
@@ -334,7 +329,6 @@ export async function activateSessionWorkContext({
   if (byteLength(contextJson) > MAX_SESSION_WORK_CONTEXT_BYTES) {
     return { activated: false, reason: 'context_invalid' };
   }
-  const normalizedProjectDir = resolve(projectDir);
   const contextSha256 = createHash('sha256').update(contextJson).digest('hex');
   return runWizardJsonCommand<SessionContextActivation>({
     args: [
@@ -380,10 +374,10 @@ export async function clearSessionWorkContext({
   spawnImpl?: SpawnLike;
 } = {}): Promise<SessionContextClearance> {
   const normalizedId = normalizedSessionId(sessionId);
-  if (!projectDir || !isAbsolute(projectDir) || !normalizedId) {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+  if (!normalizedProjectDir || !normalizedId) {
     return { cleared: false, reason: 'project_directory_unavailable' };
   }
-  const normalizedProjectDir = resolve(projectDir);
   return runWizardJsonCommand<SessionContextClearance>({
     args: [
       'sessions',

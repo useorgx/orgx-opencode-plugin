@@ -1,12 +1,15 @@
-import { resolve } from 'node:path';
-
 import type { ContextPackHydrationResult } from './contextPackHydration.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 const MAX_RUNTIME_SESSIONS = 256;
 const runtimeSessions = new Map<string, ContextPackHydrationResult>();
 
-function key(projectDir: string, sessionId: string): string {
-  return `${resolve(projectDir)}\0${sessionId.trim()}`;
+function key(projectDir: string, sessionId: string): string | null {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+  const normalizedSessionId = sessionId.trim();
+  return normalizedProjectDir && normalizedSessionId
+    ? `${normalizedProjectDir}\0${normalizedSessionId}`
+    : null;
 }
 
 /**
@@ -19,6 +22,7 @@ export function publishRuntimeSessionHydration(
   result: ContextPackHydrationResult
 ): void {
   const sessionKey = key(projectDir, sessionId);
+  if (!sessionKey) return;
   runtimeSessions.delete(sessionKey);
   runtimeSessions.set(sessionKey, result);
   while (runtimeSessions.size > MAX_RUNTIME_SESSIONS) {
@@ -32,7 +36,8 @@ export function readRuntimeSessionHydration(
   projectDir: string,
   sessionId: string
 ): ContextPackHydrationResult | undefined {
-  return runtimeSessions.get(key(projectDir, sessionId));
+  const sessionKey = key(projectDir, sessionId);
+  return sessionKey ? runtimeSessions.get(sessionKey) : undefined;
 }
 
 /** Prevent a cached ambient pack from regaining authority after failure. */
@@ -50,5 +55,6 @@ export function clearRuntimeSessionHydration(
   projectDir: string,
   sessionId: string
 ): void {
-  runtimeSessions.delete(key(projectDir, sessionId));
+  const sessionKey = key(projectDir, sessionId);
+  if (sessionKey) runtimeSessions.delete(sessionKey);
 }
