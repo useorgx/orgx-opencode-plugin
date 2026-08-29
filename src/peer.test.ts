@@ -110,7 +110,7 @@ describe('startPeer', () => {
     );
 
     expect(presence?.body).toMatchObject({
-      gateway_version: '0.1.0-alpha.17',
+      gateway_version: '0.1.0-alpha.18',
       metadata: {
         execution_provider: null,
         execution_provider_id: null,

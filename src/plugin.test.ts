@@ -1,5 +1,20 @@
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  CONTEXT_PACK_FILENAME,
+  PENDING_CONTEXT_FILENAME,
+  clearPrivateSessionContext,
+  resolvePrivateContextStateDirectory,
+} from './contextPackHydration';
 import { createOrgXOpenCodePlugin } from './plugin';
 import {
   clearRuntimeSessionHydration,
@@ -46,6 +61,13 @@ async function loadHooks(
     clearSessionWorkContext:
       opts?.clearSessionWorkContext ??
       vi.fn(async () => ({ cleared: true, reason: 'wizard_cleared' })),
+    clearPrivateSessionContext:
+      opts?.clearPrivateSessionContext ??
+      vi.fn(async () => ({
+        cleared: true,
+        reason: 'private_state_absent',
+        removedFiles: 0,
+      })),
   });
   return (await plugin(input as never)) as PluginHooks;
 }
@@ -295,9 +317,15 @@ describe('OrgXOpenCodePlugin', () => {
       cleared: true,
       reason: 'wizard_cleared',
     } as const));
+    const clearPrivateSessionContext = vi.fn(async () => ({
+      cleared: true,
+      reason: 'private_state_cleared',
+      removedFiles: 2,
+    } as const));
     const hooks = await loadHooks({
       hydrateContextPack,
       clearSessionWorkContext,
+      clearPrivateSessionContext,
       logger: createLogger(),
       env: {
         ORGX_API_KEY: 'oxk_test',
@@ -324,6 +352,73 @@ describe('OrgXOpenCodePlugin', () => {
       projectDir: '/work/repo',
       sessionId: 'session-a',
     });
+    expect(clearPrivateSessionContext).toHaveBeenCalledTimes(1);
+    expect(clearPrivateSessionContext).toHaveBeenCalledWith({
+      env: {
+        ORGX_WORKSPACE_ID: 'workspace-123',
+      },
+      projectDir: '/work/repo',
+      sessionId: 'session-a',
+    });
+  });
+
+  it('removes only the deleted session owner-state files at the terminal event', async () => {
+    const projectDir = mkdtempSync(
+      join(tmpdir(), 'orgx-opencode-plugin-project-')
+    );
+    const wizardHome = mkdtempSync(
+      join(tmpdir(), 'orgx-opencode-plugin-state-')
+    );
+    const env = { ORGX_WIZARD_CONFIG_HOME: wizardHome };
+    const stateDir = (sessionId: string) =>
+      resolvePrivateContextStateDirectory({ env, projectDir, sessionId })!;
+    try {
+      for (const sessionId of ['session-a', 'session-b']) {
+        mkdirSync(stateDir(sessionId), { recursive: true });
+        writeFileSync(
+          join(stateDir(sessionId), CONTEXT_PACK_FILENAME),
+          `${sessionId}-pack`
+        );
+        writeFileSync(
+          join(stateDir(sessionId), PENDING_CONTEXT_FILENAME),
+          `${sessionId}-pending`
+        );
+      }
+      const hooks = await loadHooks(
+        {
+          env,
+          clearPrivateSessionContext,
+          logger: createLogger(),
+        },
+        {
+          directory: projectDir,
+          serverUrl: new URL('http://localhost:4096'),
+        }
+      );
+
+      await hooks.event({
+        event: {
+          type: 'session.deleted',
+          properties: { info: { id: 'session-a' } },
+        },
+      });
+
+      expect(
+        existsSync(join(stateDir('session-a'), CONTEXT_PACK_FILENAME))
+      ).toBe(false);
+      expect(
+        existsSync(join(stateDir('session-a'), PENDING_CONTEXT_FILENAME))
+      ).toBe(false);
+      expect(
+        existsSync(join(stateDir('session-b'), CONTEXT_PACK_FILENAME))
+      ).toBe(true);
+      expect(
+        existsSync(join(stateDir('session-b'), PENDING_CONTEXT_FILENAME))
+      ).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(wizardHome, { recursive: true, force: true });
+    }
   });
 
   it('waits for in-flight hydration before clearing the terminal session lease', async () => {

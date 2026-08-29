@@ -108,6 +108,16 @@ export type ContextPackHydrationResult = {
   additionalContext?: string;
 };
 
+export type PrivateSessionContextClearance = {
+  cleared: boolean;
+  reason:
+    | 'private_state_cleared' | 'private_state_absent'
+    | 'project_directory_unavailable' | 'session_id_unavailable'
+    | 'private_state_unsafe'
+    | 'private_state_clear_failed';
+  removedFiles: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -428,6 +438,112 @@ async function removePrivateContextFile(
 
 async function removePendingContext(state: PrivateContextState): Promise<void> {
   await removePrivateContextFile(state, PENDING_CONTEXT_FILENAME);
+}
+
+async function resolveExactPrivateContextFile(
+  stateDir: string,
+  filename: typeof CONTEXT_PACK_FILENAME | typeof PENDING_CONTEXT_FILENAME
+): Promise<string | null> {
+  const candidate = resolve(stateDir, filename);
+  if (dirname(candidate) !== stateDir || !isPathWithin(stateDir, candidate)) {
+    throw new Error('unsafe_private_context_path');
+  }
+  try {
+    const file = await lstat(candidate);
+    if (!file.isFile() && !file.isSymbolicLink()) {
+      throw new Error('unsafe_private_context_file');
+    }
+    return candidate;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function unlinkPrivateContextFile(path: string): Promise<boolean> {
+  try {
+    await unlink(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function privateContextClearFailureReason(
+  error: unknown
+): PrivateSessionContextClearance['reason'] {
+  const message = error instanceof Error ? error.message : '';
+  return /unsafe|unavailable|inside_project/.test(message)
+    ? 'private_state_unsafe'
+    : 'private_state_clear_failed';
+}
+
+// Recompute terminal paths from the validated project/session tuple so callers
+// cannot select a filename or another session's persisted state.
+export async function clearPrivateSessionContext({
+  env = process.env,
+  projectDir,
+  sessionId,
+  stateRoot,
+}: {
+  env?: Env;
+  projectDir?: string;
+  sessionId?: string;
+  stateRoot?: string;
+} = {}): Promise<PrivateSessionContextClearance> {
+  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+  if (!normalizedProjectDir) {
+    return { cleared: false, reason: 'project_directory_unavailable', removedFiles: 0 };
+  }
+  const normalizedSessionId = pickString(sessionId);
+  if (!normalizedSessionId || byteLength(normalizedSessionId) > 512) {
+    return { cleared: false, reason: 'session_id_unavailable', removedFiles: 0 };
+  }
+  const privateState: PrivateContextState = {
+    env,
+    projectDir: normalizedProjectDir,
+    sessionId: normalizedSessionId,
+    stateRoot,
+  };
+  try {
+    const stateDir = await privateStateDirectory(privateState, false);
+    if (!stateDir) {
+      return { cleared: true, reason: 'private_state_absent', removedFiles: 0 };
+    }
+    const candidates = await Promise.all([
+      resolveExactPrivateContextFile(stateDir, CONTEXT_PACK_FILENAME),
+      resolveExactPrivateContextFile(stateDir, PENDING_CONTEXT_FILENAME),
+    ]);
+    const removals = await Promise.allSettled(
+      candidates
+        .filter((candidate): candidate is string => Boolean(candidate))
+        .map(unlinkPrivateContextFile)
+    );
+    const removedFiles = removals.filter(
+      (result) => result.status === 'fulfilled' && result.value
+    ).length;
+    const failure = removals.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') {
+      return {
+        cleared: false,
+        reason: privateContextClearFailureReason(failure.reason),
+        removedFiles,
+      };
+    }
+    return {
+      cleared: true,
+      reason:
+        removedFiles > 0 ? 'private_state_cleared' : 'private_state_absent',
+      removedFiles,
+    };
+  } catch (error) {
+    return {
+      cleared: false,
+      reason: privateContextClearFailureReason(error),
+      removedFiles: 0,
+    };
+  }
 }
 
 export async function persistPendingSessionWorkContext(
