@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.16",
+  "version": "0.1.0-alpha.17",
   "publishConfig": {
     "access": "public"
   },
@@ -41,7 +41,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.2",
     "@sentry/node": "10.65.0",
-    "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#7acc1b37c8daab720c81515d16d2d9e9f0539a5d"
+    "@useorgx/orgx-gateway-sdk": "0.1.0-alpha.12"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.2",
