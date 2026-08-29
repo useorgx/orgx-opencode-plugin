@@ -460,6 +460,7 @@ describe('OpenCodeDriver official SDK boundary', () => {
       tokens_used: 3400,
       provider: 'other',
       provider_id: null,
+      observed_provider_id: 'anthropic',
       source_sub_type: 'user_managed',
     });
     expect(fixture.eventAbortSignals).toHaveLength(1);
@@ -486,6 +487,7 @@ describe('OpenCodeDriver official SDK boundary', () => {
       kind: 'task.completed',
       provider: 'openai',
       provider_id: 'openai',
+      observed_provider_id: 'openai',
       source_sub_type: 'user_managed',
     });
     expect(driver.executionProviderLease()).toMatchObject({

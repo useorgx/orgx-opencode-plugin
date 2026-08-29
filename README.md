@@ -203,7 +203,10 @@ route attribution—including `provider_id: null` when the route deliberately
 left the user-managed provider unknown—rather than silently replacing it with
 a later observation. A non-null route provider ID must match the native lease
 before the session can run, and the terminal source subtype remains
-`user_managed`. Presence separately reports the latest observed provider in
+`user_managed`. The separate `observed_provider_id` terminal field records the
+provider learned from that exact native session, so a first-run unknown route
+can become an attributed observation without rewriting its routing history.
+Presence separately reports the latest observed provider in
 `execution_provider`, `execution_provider_id`, and
 `execution_provider_observed_at`. `execution_auth_method` remains `null`
 because the official SDK does not distinguish an opaque stored OAuth

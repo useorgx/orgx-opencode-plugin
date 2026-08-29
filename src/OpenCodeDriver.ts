@@ -97,6 +97,8 @@ type OpenCodeTaskCompletedMessage = Extract<
 > & {
   /** Immutable provider identifier leased by the Gateway execution route. */
   provider_id: string | null;
+  /** Provider identifier observed from the exact native OpenCode session. */
+  observed_provider_id: string | null;
 };
 type OpenCodeEvent =
   | { kind: 'tool_call'; tool: string; summary: string; ref?: string }
@@ -447,6 +449,7 @@ export class OpenCodeDriver implements Driver {
             // provider and must receive that exact lease back.
             provider: executionAttribution.provider,
             provider_id: executionAttribution.providerId,
+            observed_provider_id: active.providerLease?.providerId ?? null,
             source_sub_type: executionAttribution.sourceSubType,
             source_driver: 'opencode',
             cost_estimate_cents: 0,

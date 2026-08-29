@@ -62,6 +62,7 @@ function completedDriver(providerId: string | null): Driver {
         tokens_used: 100,
         provider: providerId === null ? 'other' : 'openai',
         provider_id: providerId,
+        observed_provider_id: providerId ?? 'anthropic',
         source_sub_type: 'user_managed',
         source_driver: 'opencode',
         cost_estimate_cents: 0,
@@ -110,6 +111,7 @@ describe('Gateway SDK protocol boundary', () => {
         kind: 'task.completed',
         provider,
         provider_id: providerId,
+        observed_provider_id: providerId ?? 'anthropic',
         source_sub_type: 'user_managed',
         source_driver: 'opencode',
       });
@@ -126,7 +128,7 @@ describe('Gateway SDK protocol boundary', () => {
       workspaceId: 'workspace-1',
       pluginId: 'orgx-opencode-plugin',
       protocolVersion: 1,
-      drivers: [completedDriver('openai')],
+      drivers: [completedDriver(null)],
       reconnect: false,
       webSocketFactory: () => socket,
       fetch: vi.fn(async (input, init) => {
@@ -146,8 +148,9 @@ describe('Gateway SDK protocol boundary', () => {
     expect(requests[0]).toEqual({
       url: 'https://useorgx.test/api/v1/runs/run-recovery/receipt',
       body: expect.objectContaining({
-        provider: 'openai',
-        provider_id: 'openai',
+        provider: 'other',
+        provider_id: null,
+        observed_provider_id: 'anthropic',
         source_sub_type: 'user_managed',
         source_driver: 'opencode',
       }),
