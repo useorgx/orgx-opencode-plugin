@@ -41,7 +41,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.2",
     "@sentry/node": "10.65.0",
-    "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#90fbab66eaedeb27f5f34b0ac4101c5ca4f5e173"
+    "@useorgx/orgx-gateway-sdk": "git+https://github.com/useorgx/orgx-gateway-sdk.git#c4d1eecf94fc9d9a607a8c60bc7ab166486e8910"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.2",

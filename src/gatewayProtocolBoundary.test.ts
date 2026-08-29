@@ -1,5 +1,6 @@
 import {
   PeerClient,
+  type Driver,
   type WebSocketEvent,
   type WebSocketLike,
 } from '@useorgx/orgx-gateway-sdk';
@@ -27,8 +28,14 @@ class TestSocket implements WebSocketLike {
 
   close(): void {}
 
+  constructor(private readonly rejectKind?: string) {}
+
   send(data: string): void {
-    this.sent.push(JSON.parse(data));
+    const message = JSON.parse(data) as { kind?: string };
+    if (message.kind === this.rejectKind) {
+      throw new Error(`test socket rejected ${this.rejectKind}`);
+    }
+    this.sent.push(message);
   }
 
   emit(type: 'open' | 'close' | 'error' | 'message', event: WebSocketEvent): void {
@@ -36,7 +43,118 @@ class TestSocket implements WebSocketLike {
   }
 }
 
+function completedDriver(providerId: string | null): Driver {
+  return {
+    id: 'opencode',
+    detect: vi.fn(async () => ({ installed: true, authenticated: true })),
+    probe: vi.fn(async () => ({
+      subscription_active: true,
+      session_alive: true,
+    })),
+    cancel: vi.fn(async () => undefined),
+    async *dispatch(_task, context) {
+      yield {
+        kind: 'task.completed',
+        run_id: context.run_id,
+        outcome_kind: 'awaiting_review',
+        started_at: '2026-08-29T13:00:00.000Z',
+        completed_at: '2026-08-29T13:00:01.000Z',
+        tokens_used: 100,
+        provider: providerId === null ? 'other' : 'openai',
+        provider_id: providerId,
+        source_sub_type: 'user_managed',
+        source_driver: 'opencode',
+        cost_estimate_cents: 0,
+      };
+    },
+  };
+}
+
+function emitV1Dispatch(socket: TestSocket, runId: string): void {
+  socket.emit('message', {
+    data: JSON.stringify({
+      kind: 'task.dispatch',
+      run_id: runId,
+      idempotency_key: `key-${runId}`,
+      timeout_seconds: 60,
+      task: { title: 'echo provider lease', driver: 'opencode' },
+    }),
+  });
+}
+
 describe('Gateway SDK protocol boundary', () => {
+  it.each([
+    ['openai', 'openai'],
+    [null, 'other'],
+  ] as const)(
+    'preserves the exact provider_id lease %s on the WebSocket terminal',
+    async (providerId, provider) => {
+      const socket = new TestSocket();
+      const peer = new PeerClient({
+        baseUrl: 'wss://useorgx.test',
+        apiKey: 'oxk_test_only',
+        workspaceId: 'workspace-1',
+        pluginId: 'orgx-opencode-plugin',
+        protocolVersion: 1,
+        drivers: [completedDriver(providerId)],
+        reconnect: false,
+        webSocketFactory: () => socket,
+      });
+
+      peer.connect();
+      socket.emit('open', {});
+      emitV1Dispatch(socket, `run-${provider}`);
+
+      await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+      expect(socket.sent[0]).toMatchObject({
+        kind: 'task.completed',
+        provider,
+        provider_id: providerId,
+        source_sub_type: 'user_managed',
+        source_driver: 'opencode',
+      });
+      peer.disconnect();
+    }
+  );
+
+  it('preserves provider_id in the HTTP recovery receipt when the terminal socket send fails', async () => {
+    const socket = new TestSocket('task.completed');
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const peer = new PeerClient({
+      baseUrl: 'wss://useorgx.test',
+      apiKey: 'oxk_test_only',
+      workspaceId: 'workspace-1',
+      pluginId: 'orgx-opencode-plugin',
+      protocolVersion: 1,
+      drivers: [completedDriver('openai')],
+      reconnect: false,
+      webSocketFactory: () => socket,
+      fetch: vi.fn(async (input, init) => {
+        requests.push({
+          url: String(input),
+          body: JSON.parse(String(init?.body ?? '{}')),
+        });
+        return new Response('{}', { status: 200 });
+      }),
+    });
+
+    peer.connect();
+    socket.emit('open', {});
+    emitV1Dispatch(socket, 'run-recovery');
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toEqual({
+      url: 'https://useorgx.test/api/v1/runs/run-recovery/receipt',
+      body: expect.objectContaining({
+        provider: 'openai',
+        provider_id: 'openai',
+        source_sub_type: 'user_managed',
+        source_driver: 'opencode',
+      }),
+    });
+    peer.disconnect();
+  });
+
   it('fails protocol v2 before native session creation instead of emitting a mismatched terminal', async () => {
     const socket = new TestSocket();
     const createClient = vi.fn(() => {

@@ -91,6 +91,13 @@ type GatewayExecutionAttribution = {
   sourceSubType: 'user_managed';
   observedAt: string;
 };
+type OpenCodeTaskCompletedMessage = Extract<
+  DriverOutboundMessage,
+  { kind: 'task.completed' }
+> & {
+  /** Immutable provider identifier leased by the Gateway execution route. */
+  provider_id: string | null;
+};
 type OpenCodeEvent =
   | { kind: 'tool_call'; tool: string; summary: string; ref?: string }
   | { kind: 'file_edit'; path: string; summary: string; diff_ref?: string }
@@ -425,7 +432,7 @@ export class OpenCodeDriver implements Driver {
             first_response_seen: Boolean(firstResponseAt),
           });
           this.assertNotCancelled(context.run_id);
-          yield {
+          const completedMessage: OpenCodeTaskCompletedMessage = {
             kind: 'task.completed',
             run_id: context.run_id,
             // A completed model turn is not proof that OrgX accepted or shipped it.
@@ -434,11 +441,17 @@ export class OpenCodeDriver implements Driver {
             first_response_at: firstResponseAt ?? startedAt,
             completed_at: new Date().toISOString(),
             tokens_used: event.tokens_used,
-            provider: providerKind(event.provider),
+            // Echo the immutable route lease rather than re-projecting the
+            // terminal model event. A null provider_id is meaningful: the
+            // Gateway deliberately routed against an unknown user-managed
+            // provider and must receive that exact lease back.
+            provider: executionAttribution.provider,
+            provider_id: executionAttribution.providerId,
             source_sub_type: executionAttribution.sourceSubType,
             source_driver: 'opencode',
             cost_estimate_cents: 0,
           };
+          yield completedMessage;
           await this.replayWorkGraph();
           return;
         }

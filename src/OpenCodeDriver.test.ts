@@ -458,7 +458,8 @@ describe('OpenCodeDriver official SDK boundary', () => {
       kind: 'task.completed',
       outcome_kind: 'awaiting_review',
       tokens_used: 3400,
-      provider: 'anthropic',
+      provider: 'other',
+      provider_id: null,
       source_sub_type: 'user_managed',
     });
     expect(fixture.eventAbortSignals).toHaveLength(1);
@@ -484,6 +485,7 @@ describe('OpenCodeDriver official SDK boundary', () => {
     expect(messages.at(-1)).toMatchObject({
       kind: 'task.completed',
       provider: 'openai',
+      provider_id: 'openai',
       source_sub_type: 'user_managed',
     });
     expect(driver.executionProviderLease()).toMatchObject({
@@ -506,6 +508,24 @@ describe('OpenCodeDriver official SDK boundary', () => {
     });
   });
 
+  it('rejects execution attribution that omits the leased provider ID', async () => {
+    const fixture = createSdkFixture();
+    const messages = await collect(driverWithFixture(fixture), {
+      execution_attribution: {
+        provider: 'other',
+        source_sub_type: 'user_managed',
+        observed_at: '2026-08-26T16:00:00.000Z',
+      },
+      repo_path: PROJECT_DIR,
+    });
+
+    expect(fixture.create).not.toHaveBeenCalled();
+    expect(messages.at(-1)).toMatchObject({
+      kind: 'task.failed',
+      reason: 'OrgX dispatch execution attribution is invalid',
+    });
+  });
+
   it('rejects a non-null provider lease that disagrees with the native session', async () => {
     const fixture = createSdkFixture();
     const messages = await collect(driverWithFixture(fixture), {
@@ -518,6 +538,11 @@ describe('OpenCodeDriver official SDK boundary', () => {
       kind: 'task.failed',
       reason: 'OpenCode session provider does not match execution attribution',
     });
+    expect(
+      messages.some((message) =>
+        (message as { kind?: string }).kind === 'task.completed'
+      )
+    ).toBe(false);
   });
 
   it('consumes the exact Gateway activation and acknowledges it before prompting', async () => {
