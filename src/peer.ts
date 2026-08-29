@@ -12,16 +12,25 @@
  *   });
  */
 
-import { PeerClient, type Driver } from '@useorgx/orgx-gateway-sdk';
+import {
+  PeerClient,
+  type Driver,
+  type PeerClientConfig,
+} from '@useorgx/orgx-gateway-sdk';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import { OpenCodeDriver } from './OpenCodeDriver.js';
 import {
+  ActivationAcceptanceBroker,
+  createActivationObservingWebSocketFactory,
+} from './activationAcceptance.js';
+import {
   buildPluginContinuityHealth,
   type ContinuityOutboxHealth,
 } from './continuityHealth.js';
+import { resolveSafeBaseUrl } from './contextPackHydration.js';
 import {
   capturePluginException,
   initializePluginSentry,
@@ -80,6 +89,10 @@ export type StartPeerOptions = {
   workspaceId: string;
   /** Default: https://useorgx.com */
   baseUrl?: string;
+  /** Authoritative native OpenCode server URL from the plugin runtime. */
+  openCodeServerUrl?: string;
+  /** Authoritative native OpenCode project directory from the plugin runtime. */
+  openCodeDirectory?: string;
   /** Override for tests. */
   driver?: Driver;
   /** Skip the license heartbeat (tests). */
@@ -94,6 +107,10 @@ export type StartPeerOptions = {
   continuityOutbox?: ContinuityOutboxHealth;
   /** Disable terminal replay for tests or intentionally offline installs. */
   autoReplayWorkGraph?: boolean;
+  /** Gateway WebSocket override for deterministic transport tests. */
+  webSocketFactory?: PeerClientConfig['webSocketFactory'];
+  /** Maximum wait for the Gateway's durable activation acceptance. */
+  activationAcceptanceTimeoutMs?: number;
 };
 
 export type StartedPeer = {
@@ -101,9 +118,17 @@ export type StartedPeer = {
 };
 
 export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
-  const baseUrl = opts.baseUrl ?? 'https://useorgx.com';
+  const baseUrl = resolveSafeBaseUrl(opts.baseUrl);
+  if (!baseUrl) {
+    throw new Error(
+      'Unsafe OrgX base URL; use credential-free HTTPS or loopback HTTP'
+    );
+  }
   const manifest = await loadManifest();
   initializePluginSentry(manifest.version);
+  const activationAcceptance = new ActivationAcceptanceBroker(
+    opts.activationAcceptanceTimeoutMs
+  );
   const replayWorkGraph =
     opts.autoReplayWorkGraph === false
       ? undefined
@@ -116,9 +141,22 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
   const driver =
     opts.driver ??
     new OpenCodeDriver({
+      openCodeServerUrl: opts.openCodeServerUrl,
+      defaultDirectory: opts.openCodeDirectory,
       skillRules: async () => fetchSkillRules(baseUrl, opts),
       workGraphOutboxPath: opts.workGraphOutboxPath,
       replayWorkGraph,
+      orgxApiKey: opts.apiKey,
+      orgxBaseUrl: baseUrl,
+      workspaceId: opts.workspaceId,
+      orgxEnv: process.env,
+      awaitActivationAcceptance: (expectation) =>
+        activationAcceptance.waitForAcceptance(expectation),
+      cancelActivationAcceptance: (runId) =>
+        activationAcceptance.rejectRun(
+          runId,
+          'OrgX dispatch ended before context activation acceptance'
+        ),
     });
 
   let transportOnline = false;
@@ -134,6 +172,10 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
     installationId: opts.installationId ?? defaultInstallationId(),
     protocolVersion: GATEWAY_PROTOCOL_VERSION,
     drivers: [driver],
+    webSocketFactory: createActivationObservingWebSocketFactory(
+      activationAcceptance,
+      opts.webSocketFactory
+    ),
     onOpen: () => {
       transportOnline = true;
       // eslint-disable-next-line no-console
@@ -146,7 +188,10 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
     onClose: (code, reason) => {
       transportOnline = false;
       // eslint-disable-next-line no-console
-      console.warn('[orgx-opencode-plugin] closed', { code, reason });
+      console.warn('[orgx-opencode-plugin] closed', {
+        code,
+        reason: redactTransportText(reason),
+      });
     },
     onError: (err) => {
       const safeError = summarizeTransportError(err);
@@ -194,6 +239,9 @@ export async function startPeer(opts: StartPeerOptions): Promise<StartedPeer> {
       if (presenceTimer) clearInterval(presenceTimer);
       if (licenseHeartbeatTimer) clearInterval(licenseHeartbeatTimer);
       transportOnline = false;
+      activationAcceptance.rejectAll(
+        'OrgX peer stopped before context activation acceptance'
+      );
       client.disconnect();
     },
   };
@@ -245,8 +293,11 @@ async function postPresenceHeartbeat(
     endpoint: opts.mcpEndpoint,
     outbox: opts.continuityOutbox,
   });
+  const providerLease =
+    driver instanceof OpenCodeDriver ? driver.executionProviderLease() : null;
   const r = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/gateway/heartbeat`, {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${opts.apiKey}`,
@@ -270,6 +321,16 @@ async function postPresenceHeartbeat(
           transportOnline && detected.installed === true && authenticated,
         auth_status: authState,
         auth_method: null,
+        execution_provider: providerLease?.provider ?? null,
+        execution_provider_id: providerLease?.providerId ?? null,
+        execution_provider_observed_at: providerLease?.observedAt ?? null,
+        // The official OpenCode SDK does not expose whether an opaque stored
+        // provider credential is OAuth or an API key.
+        capabilities: {
+          session_context_activation_v1: true,
+          session_context_acceptance_v1: true,
+        },
+        execution_auth_method: null,
         probe_version: detected.version ?? null,
         continuity_health: continuityHealth,
       },
@@ -287,6 +348,7 @@ async function postLicenseHeartbeat(
 ): Promise<void> {
   const r = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/licenses/heartbeat`, {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${opts.apiKey}`,
@@ -300,7 +362,7 @@ async function postLicenseHeartbeat(
     }),
   });
   if (!r.ok) {
-    throw new Error(`heartbeat ${r.status}: ${await r.text().catch(() => '')}`);
+    throw new Error(`heartbeat ${r.status}`);
   }
 }
 
@@ -324,6 +386,7 @@ async function fetchSkillRules(
       `${baseUrl.replace(/\/$/, '')}/api/v1/plan-skills?workspace_id=${encodeURIComponent(opts.workspaceId)}`,
       {
         method: 'GET',
+        redirect: 'error',
         headers: { Authorization: `Bearer ${opts.apiKey}` },
       }
     );

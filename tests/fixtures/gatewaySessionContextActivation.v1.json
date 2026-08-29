@@ -1,0 +1,83 @@
+{
+  "schema_version": "orgx-gateway-session-context-activation/v1",
+  "source_client": "opencode",
+  "session_activation": {
+    "schema_version": "orgx-session-activation/v1",
+    "scope": {
+      "workspace_id": "00000000-0000-4000-8000-000000000001",
+      "initiative_id": "00000000-0000-4000-8000-000000000002",
+      "workstream_id": "00000000-0000-4000-8000-000000000003",
+      "task_id": "00000000-0000-4000-8000-000000000004"
+    },
+    "work_context": {
+      "schema_version": "orgx-session-work-context/v1",
+      "provenance": "producer_asserted",
+      "intent": {
+        "summary": "Continue the accepted OrgX task.",
+        "acceptance_criteria": [
+          "The exact activation is acknowledged before execution."
+        ],
+        "constraints": ["Do not start without the server acceptance frame."]
+      },
+      "authority": {
+        "mode": "explicit",
+        "status": "granted",
+        "scope": {
+          "actions": ["implement", "verify"],
+          "resources": [],
+          "systems": ["orgx"]
+        },
+        "constraints": []
+      },
+      "cost": {
+        "availability": "not_observed"
+      },
+      "artifact_refs": [],
+      "evidence_refs": []
+    },
+    "compaction": {
+      "compacted": false,
+      "summary_truncated": false,
+      "omitted_counts": {
+        "authoritative_decisions": 0,
+        "open_risks": 0,
+        "acceptance_criteria": 0,
+        "artifact_refs": 0,
+        "evidence_refs": 0,
+        "active_constraints": 0,
+        "pending_expectations": 0,
+        "applied_learnings": 0,
+        "recent_receipt_refs": 0
+      },
+      "source_capsule": {
+        "id": "capsule-1",
+        "content_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "generated_at": "2026-08-26T12:00:00.000Z",
+        "projection_consistency": "best_effort_multi_read",
+        "omitted_counts": {
+          "authoritative_decisions": 0,
+          "applied_learnings": 0,
+          "pending_expectations": 0,
+          "open_risks": 0,
+          "recent_receipt_refs": 0
+        },
+        "source_completeness": {
+          "authoritative_decisions": {
+            "status": "complete",
+            "candidates_unvalidated": 0
+          },
+          "current_intent": {
+            "status": "complete",
+            "candidates_unvalidated": 0
+          },
+          "recent_receipt_refs": {
+            "status": "complete",
+            "candidates_unvalidated": 0
+          }
+        }
+      }
+    }
+  },
+  "context_sha256": "sha256:67bb73b5e76105a0fc86e6399cb1a90f2fc929ca8e0b7fee288782660ebc6601",
+  "activation_sha256": "sha256:9fc9376b4a3112bb2e2b3ec46e044ca60a1832126545357df52a9abddb7815a8"
+}

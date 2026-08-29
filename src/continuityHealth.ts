@@ -117,7 +117,7 @@ export async function buildPluginContinuityHealth({
   const outboxHealth = outbox ?? (await inspectContinuityOutbox());
   const hookEvents = [
     'session.created',
-    'message.updated:user',
+    'chat.message',
     'tool.execute.before',
     'tool.execute.after',
     'permission.asked',
