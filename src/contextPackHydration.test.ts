@@ -21,6 +21,7 @@ import {
   PENDING_CONTEXT_FILENAME,
   activateProvidedSessionWorkContext,
   buildContextPackRequest,
+  clearPrivateSessionContext,
   clearSessionWorkContext,
   hydrateContextPack as hydrateContextPackImpl,
   resolveContextPackConfig,
@@ -460,6 +461,84 @@ describe('opencode context-pack hydration', () => {
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
       rmSync(wizardHome, { recursive: true, force: true });
+    }
+  });
+
+  it('clears only the deleted session context pack and pending activation', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'orgx-opencode-project-'));
+    const stateRoot = testStateRoot(projectDir);
+    const env = {
+      ORGX_API_KEY: 'oxk_test',
+      ORGX_TASK_ID: 'task-1',
+    };
+    try {
+      for (const sessionId of ['session-a', 'session-b']) {
+        const result = await hydrateContextPackImpl({
+          env,
+          projectDir,
+          sessionId,
+          stateRoot,
+          fetchImpl: vi.fn(async () => response({ sessionWorkContext })),
+          spawnImpl: () => {
+            throw new Error('orgx-wizard unavailable');
+          },
+        });
+        expect(result.contextPackPath).toBeTruthy();
+        expect(result.sessionContext?.pendingPath).toBeTruthy();
+      }
+      const sessionA = stateDirectory(projectDir, 'session-a');
+      const sessionB = stateDirectory(projectDir, 'session-b');
+
+      await expect(
+        clearPrivateSessionContext({
+          env,
+          projectDir,
+          sessionId: 'session-a',
+          stateRoot,
+        })
+      ).resolves.toEqual({
+        cleared: true,
+        reason: 'private_state_cleared',
+        removedFiles: 2,
+      });
+
+      expect(existsSync(join(sessionA, CONTEXT_PACK_FILENAME))).toBe(false);
+      expect(existsSync(join(sessionA, PENDING_CONTEXT_FILENAME))).toBe(false);
+      expect(existsSync(join(sessionB, CONTEXT_PACK_FILENAME))).toBe(true);
+      expect(existsSync(join(sessionB, PENDING_CONTEXT_FILENAME))).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on a symlinked session state directory without deleting its target', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'orgx-opencode-project-'));
+    const stateRoot = testStateRoot(projectDir);
+    const outside = mkdtempSync(join(tmpdir(), 'orgx-opencode-outside-state-'));
+    const sessionDir = stateDirectory(projectDir, 'session-a');
+    const packPath = join(outside, CONTEXT_PACK_FILENAME);
+    const pendingPath = join(outside, PENDING_CONTEXT_FILENAME);
+    mkdirSync(stateRoot, { recursive: true });
+    writeFileSync(packPath, 'other-session-pack');
+    writeFileSync(pendingPath, 'other-session-pending');
+    symlinkSync(outside, sessionDir, 'dir');
+    try {
+      await expect(
+        clearPrivateSessionContext({
+          projectDir,
+          sessionId: 'session-a',
+          stateRoot,
+        })
+      ).resolves.toEqual({
+        cleared: false,
+        reason: 'private_state_unsafe',
+        removedFiles: 0,
+      });
+      expect(readFileSync(packPath, 'utf8')).toBe('other-session-pack');
+      expect(readFileSync(pendingPath, 'utf8')).toBe('other-session-pending');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 

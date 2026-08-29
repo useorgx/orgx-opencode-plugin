@@ -4,10 +4,12 @@ import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 import type { StartedPeer, StartPeerOptions } from './peer.js';
 import {
   MAX_ADDITIONAL_CONTEXT_BYTES,
+  clearPrivateSessionContext,
   clearSessionWorkContext,
   hydrateContextPack,
   resolveSafeBaseUrl,
   type ContextPackHydrationResult,
+  type PrivateSessionContextClearance,
   type SessionContextClearance,
 } from './contextPackHydration.js';
 import { capturePluginException } from './sentry.js';
@@ -38,6 +40,11 @@ type ClearSessionWorkContext = (input: {
   projectDir?: string;
   sessionId?: string;
 }) => Promise<SessionContextClearance>;
+type ClearPrivateSessionContext = (input: {
+  env?: Env;
+  projectDir?: string;
+  sessionId?: string;
+}) => Promise<PrivateSessionContextClearance>;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -82,6 +89,7 @@ export type CreateOrgXOpenCodePluginOptions = {
   bridgeSessionSummary?: BridgeSessionSummary;
   hydrateContextPack?: HydrateContextPack;
   clearSessionWorkContext?: ClearSessionWorkContext;
+  clearPrivateSessionContext?: ClearPrivateSessionContext;
 };
 
 export function createOrgXOpenCodePlugin(
@@ -100,6 +108,8 @@ export function createOrgXOpenCodePlugin(
   const hydrate = opts.hydrateContextPack ?? hydrateContextPack;
   const clearContext =
     opts.clearSessionWorkContext ?? clearSessionWorkContext;
+  const clearPrivateContext =
+    opts.clearPrivateSessionContext ?? clearPrivateSessionContext;
   let peer: Promise<StartedPeer> | null = null;
   const contextHydrations = new Map<
     string,
@@ -264,19 +274,40 @@ export function createOrgXOpenCodePlugin(
         if (event.type === 'session.deleted' && sessionId) {
           const key = contextHydrationKey(projectDir, sessionId);
           if (key) await contextHydrations.get(key);
-          const clearance = await clearContext({
-            env,
-            projectDir,
-            sessionId,
-          }).catch((error) => {
-            capturePluginException(error, {
-              stage: 'session_context_clear',
-            });
-            return { cleared: false, reason: 'wizard_unavailable' } as const;
-          });
+          const [clearance, privateClearance] = await Promise.all([
+            clearContext({
+              env,
+              projectDir,
+              sessionId,
+            }).catch((error) => {
+              capturePluginException(error, {
+                stage: 'session_context_clear',
+              });
+              return { cleared: false, reason: 'wizard_unavailable' } as const;
+            }),
+            clearPrivateContext({
+              env,
+              projectDir,
+              sessionId,
+            }).catch((error) => {
+              capturePluginException(error, {
+                stage: 'private_session_context_clear',
+              });
+              return {
+                cleared: false,
+                reason: 'private_state_clear_failed',
+                removedFiles: 0,
+              } as const;
+            }),
+          ]);
           if (!clearance.cleared) {
             logger.warn(
               `[orgx-opencode-plugin] session context clear unverified: ${clearance.reason}`
+            );
+          }
+          if (!privateClearance.cleared) {
+            logger.warn(
+              `[orgx-opencode-plugin] private session context clear unverified: ${privateClearance.reason}`
             );
           }
           if (key) contextHydrations.delete(key);
