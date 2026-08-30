@@ -3,7 +3,6 @@ import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 
 import type { StartedPeer, StartPeerOptions } from './peer.js';
 import {
-  MAX_ADDITIONAL_CONTEXT_BYTES,
   clearPrivateSessionContext,
   clearSessionWorkContext,
   hydrateContextPack,
@@ -24,6 +23,15 @@ import {
 import { captureGatewayCredential } from './childProcessEnv.js';
 import { bridgeOpenCodeSessionSummary } from './sessionSummaryBridge.js';
 import { normalizeAbsoluteHostPath } from './hostPath.js';
+import {
+  appendAdditionalContext,
+  contextHydrationKey,
+  finalizeSessionContext,
+  isRunEndConsumptionPersisted,
+  isSuccessfulAssistantCompletion,
+  nativeSessionId,
+  sessionStartAdditionalContext,
+} from './pluginSessionLifecycle.js';
 
 type StartPeer = (opts: StartPeerOptions) => Promise<StartedPeer>;
 type Env = Record<string, string | undefined>;
@@ -45,42 +53,6 @@ type ClearPrivateSessionContext = (input: {
   projectDir?: string;
   sessionId?: string;
 }) => Promise<PrivateSessionContextClearance>;
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function nativeSessionId(value: unknown): string | undefined {
-  const root = record(value);
-  const properties = record(root.properties);
-  const info = record(properties.info);
-  for (const candidate of [
-    root.sessionID,
-    root.session_id,
-    properties.sessionID,
-    properties.session_id,
-    info.sessionID,
-    info.session_id,
-    info.id,
-  ]) {
-    if (typeof candidate !== 'string') continue;
-    const normalized = candidate.trim();
-    if (normalized) return normalized;
-  }
-  return undefined;
-}
-
-function contextHydrationKey(
-  projectDir: string,
-  sessionId: string
-): string | null {
-  const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
-  return normalizedProjectDir
-    ? `${normalizedProjectDir}\0${sessionId}`
-    : null;
-}
 
 export type CreateOrgXOpenCodePluginOptions = {
   startPeer?: StartPeer;
@@ -115,6 +87,13 @@ export function createOrgXOpenCodePlugin(
     string,
     Promise<ContextPackHydrationResult>
   >();
+  const sessionStarts = new Map<
+    string,
+    Promise<ContextPackHydrationResult>
+  >();
+  const sessionsWithModelWork = new Set<string>();
+  const sessionsWithRunEnd = new Set<string>();
+  const gatewayScopedSessions = new Set<string>();
   let warnedMissingConfig = false;
   let warnedMissingAttentionConfig = false;
   const activeAttention = new Set<string>();
@@ -169,8 +148,11 @@ export function createOrgXOpenCodePlugin(
       normalizedProjectDir,
       sessionId
     );
-    if (runtimeHydration) return runtimeHydration;
     const key = contextHydrationKey(normalizedProjectDir, sessionId)!;
+    if (runtimeHydration) {
+      gatewayScopedSessions.add(key);
+      return runtimeHydration;
+    }
     const existing = contextHydrations.get(key);
     if (existing) return existing;
     const hydration = hydrate({
@@ -198,7 +180,7 @@ export function createOrgXOpenCodePlugin(
     const projectDir = exactProjectDir ?? input.directory;
     const capture = async (nativeEvent: string, payload: unknown) => {
       try {
-        await bridgeSessionSummary({
+        return await bridgeSessionSummary({
           nativeEvent,
           payload,
           directory: projectDir,
@@ -209,31 +191,66 @@ export function createOrgXOpenCodePlugin(
         logger.warn(
           `[orgx-opencode-plugin] session summary capture unavailable: ${formatError(error)}`
         );
+        return undefined;
       }
     };
 
+    const ensureSessionStart = async (
+      sessionId: string,
+      payload: unknown
+    ): Promise<ContextPackHydrationResult> => {
+      const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
+      const key = normalizedProjectDir
+        ? contextHydrationKey(normalizedProjectDir, sessionId)
+        : null;
+      if (!normalizedProjectDir || !key) {
+        return { ok: true, skipped: 'project_directory_unavailable' };
+      }
+
+      const runtimeHydration = readRuntimeSessionHydration(
+        normalizedProjectDir,
+        sessionId
+      );
+      if (runtimeHydration) {
+        gatewayScopedSessions.add(key);
+        let start = sessionStarts.get(key);
+        if (!start) {
+          start = capture('session.created', payload).then(
+            () => runtimeHydration
+          );
+          sessionStarts.set(key, start);
+        }
+        await start;
+        return runtimeHydration;
+      }
+
+      const existing = sessionStarts.get(key);
+      if (existing) return existing;
+      const start = (async () => {
+        const sessionStart = await capture('session.created', payload);
+        const additionalContext = sessionStartAdditionalContext(sessionStart);
+        if (additionalContext) {
+          const claimed = { ok: true, additionalContext } as const;
+          contextHydrations.set(key, Promise.resolve(claimed));
+          return claimed;
+        }
+        return hydrateProjectContext(normalizedProjectDir, sessionId);
+      })();
+      sessionStarts.set(key, start);
+      return start;
+    };
+
     return {
-      'experimental.chat.system.transform': async (chatInput, output) => {
-        const sessionId = nativeSessionId(chatInput);
-        if (!sessionId) return;
-        const result = await hydrateProjectContext(projectDir, sessionId);
-        const additionalContext = result.additionalContext;
-        if (
-          typeof additionalContext !== 'string' ||
-          !additionalContext ||
-          Buffer.byteLength(additionalContext, 'utf8') >
-            MAX_ADDITIONAL_CONTEXT_BYTES
-        ) {
-          return;
-        }
-        if (!output.system.includes(additionalContext)) {
-          output.system.push(additionalContext);
-        }
-      },
       'chat.message': async (messageInput, output) => {
         const sessionId = nativeSessionId(messageInput);
         if (sessionId) {
-          await hydrateProjectContext(projectDir, sessionId);
+          const result = await ensureSessionStart(sessionId, {
+            sessionID: sessionId,
+          });
+          const key = contextHydrationKey(projectDir, sessionId);
+          if (!key || !sessionsWithModelWork.has(key)) {
+            appendAdditionalContext(output.message, result.additionalContext);
+          }
         }
         const prompt = output.parts
           .filter(
@@ -254,10 +271,68 @@ export function createOrgXOpenCodePlugin(
       },
       event: async ({ event }) => {
         const sessionId = nativeSessionId(event);
-        if (event.type === 'session.created' && sessionId) {
-          await hydrateProjectContext(projectDir, sessionId);
+        const key = sessionId
+          ? contextHydrationKey(projectDir, sessionId)
+          : null;
+        if (key && isSuccessfulAssistantCompletion(event)) {
+          sessionsWithModelWork.add(key);
         }
-        await capture(event.type, event);
+        let eventAlreadyCaptured = false;
+        if (event.type === 'session.created' && sessionId) {
+          await ensureSessionStart(sessionId, event);
+          eventAlreadyCaptured = true;
+        }
+
+        const runEndedBeforeModelWork =
+          key !== null &&
+          !sessionsWithModelWork.has(key) &&
+          (event.type === 'session.idle' || event.type === 'session.error');
+        const sessionAbandoned =
+          key !== null &&
+          !sessionsWithModelWork.has(key) &&
+          !gatewayScopedSessions.has(key) &&
+          event.type === 'session.deleted';
+        const gatewaySessionFailedBeforeModelWork =
+          key !== null &&
+          !sessionsWithModelWork.has(key) &&
+          gatewayScopedSessions.has(key) &&
+          event.type === 'session.deleted';
+
+        let usedSessionEndUnverified = false;
+        if (
+          key &&
+          event.type === 'session.deleted' &&
+          sessionsWithModelWork.has(key) &&
+          !sessionsWithRunEnd.has(key)
+        ) {
+          const runEnd = await capture('session.idle', event);
+          if (isRunEndConsumptionPersisted(runEnd)) {
+            sessionsWithRunEnd.add(key);
+          } else {
+            usedSessionEndUnverified = true;
+            logger.warn(
+              '[orgx-opencode-plugin] model work consumption marker unverified; SessionEnd recovery was suppressed'
+            );
+          }
+        }
+
+        if (
+          !eventAlreadyCaptured &&
+          !runEndedBeforeModelWork &&
+          !sessionAbandoned &&
+          !gatewaySessionFailedBeforeModelWork &&
+          !usedSessionEndUnverified
+        ) {
+          const result = await capture(event.type, event);
+          if (
+            key &&
+            sessionsWithModelWork.has(key) &&
+            (event.type === 'session.idle' || event.type === 'session.error') &&
+            isRunEndConsumptionPersisted(result)
+          ) {
+            sessionsWithRunEnd.add(key);
+          }
+        }
 
         if (event.type === 'server.connected') {
           if (!exactProjectDir) {
@@ -272,46 +347,34 @@ export function createOrgXOpenCodePlugin(
           }
         }
         if (event.type === 'session.deleted' && sessionId) {
-          const key = contextHydrationKey(projectDir, sessionId);
           if (key) await contextHydrations.get(key);
-          const [clearance, privateClearance] = await Promise.all([
-            clearContext({
-              env,
-              projectDir,
-              sessionId,
-            }).catch((error) => {
-              capturePluginException(error, {
-                stage: 'session_context_clear',
-              });
-              return { cleared: false, reason: 'wizard_unavailable' } as const;
-            }),
-            clearPrivateContext({
-              env,
-              projectDir,
-              sessionId,
-            }).catch((error) => {
-              capturePluginException(error, {
-                stage: 'private_session_context_clear',
-              });
-              return {
-                cleared: false,
-                reason: 'private_state_clear_failed',
-                removedFiles: 0,
-              } as const;
-            }),
-          ]);
-          if (!clearance.cleared) {
-            logger.warn(
-              `[orgx-opencode-plugin] session context clear unverified: ${clearance.reason}`
-            );
+          await finalizeSessionContext({
+            capture,
+            clearContext,
+            clearPrivate: clearPrivateContext,
+            env,
+            event,
+            logger,
+            mode: gatewaySessionFailedBeforeModelWork
+              ? 'gateway_abandoned'
+              : sessionAbandoned
+                ? 'interactive_abandoned'
+                : 'used',
+            onException: (error, stage) => {
+              capturePluginException(error, { stage });
+            },
+            projectDir,
+            sessionId,
+          });
+          if (key) {
+            contextHydrations.delete(key);
+            sessionStarts.delete(key);
+            sessionsWithModelWork.delete(key);
+            sessionsWithRunEnd.delete(key);
+            gatewayScopedSessions.delete(key);
           }
-          if (!privateClearance.cleared) {
-            logger.warn(
-              `[orgx-opencode-plugin] private session context clear unverified: ${privateClearance.reason}`
-            );
-          }
-          if (key) contextHydrations.delete(key);
           clearRuntimeSessionHydration(projectDir, sessionId);
+          return;
         }
 
         if (env.ORGX_REMOTE_ATTENTION !== '1') return;
@@ -365,7 +428,9 @@ export function createOrgXOpenCodePlugin(
       'tool.execute.before': async (toolInput, output) => {
         const sessionId = nativeSessionId(toolInput);
         if (sessionId) {
-          await hydrateProjectContext(projectDir, sessionId);
+          await ensureSessionStart(sessionId, { sessionID: sessionId });
+          const key = contextHydrationKey(projectDir, sessionId);
+          if (key) sessionsWithModelWork.add(key);
         }
         await capture('tool.execute.before', {
           ...toolInput,
@@ -375,7 +440,7 @@ export function createOrgXOpenCodePlugin(
       'tool.execute.after': async (toolInput) => {
         const sessionId = nativeSessionId(toolInput);
         if (sessionId) {
-          await hydrateProjectContext(projectDir, sessionId);
+          await ensureSessionStart(sessionId, { sessionID: sessionId });
         }
         await capture('tool.execute.after', toolInput);
       },
