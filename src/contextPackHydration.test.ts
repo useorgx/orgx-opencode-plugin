@@ -30,6 +30,7 @@ import {
   sessionWorkContextSha256,
   type SpawnLike,
 } from './contextPackHydration.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 type HydrationInput = NonNullable<
   Parameters<typeof hydrateContextPackImpl>[0]
@@ -346,7 +347,7 @@ describe('opencode context-pack hydration', () => {
         '--file',
         '-',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -663,7 +664,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -780,7 +781,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -963,7 +964,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',

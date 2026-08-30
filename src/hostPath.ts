@@ -1,9 +1,27 @@
+import { realpathSync } from 'node:fs';
 import { platform as runtimePlatform } from 'node:os';
 import { posix, win32 } from 'node:path';
 
 const WINDOWS_DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_ABSOLUTE = /^[\\/]{2}(?![?.][\\/])[^\\/]+[\\/][^\\/]+(?:[\\/]|$)/;
 const WINDOWS_DEVICE_NAMESPACE = /^[\\/]{1,2}(?:[?.][\\/]|\?\?[\\/])/;
+
+function canonicalPosixPath(value: string): string {
+  const absolute = posix.resolve(value);
+  let ancestor = absolute;
+  const missing: string[] = [];
+
+  while (true) {
+    try {
+      return posix.resolve(realpathSync.native(ancestor), ...missing);
+    } catch {
+      const parent = posix.dirname(ancestor);
+      if (parent === ancestor) return absolute;
+      missing.unshift(posix.basename(ancestor));
+      ancestor = parent;
+    }
+  }
+}
 
 /**
  * Canonicalize an absolute path using the selected host's path contract.
@@ -19,7 +37,7 @@ export function normalizeAbsoluteHostPath(
   if (typeof value !== 'string' || value.trim().length === 0) return null;
 
   if (hostPlatform !== 'win32') {
-    return posix.isAbsolute(value) ? posix.resolve(value) : null;
+    return posix.isAbsolute(value) ? canonicalPosixPath(value) : null;
   }
 
   if (
