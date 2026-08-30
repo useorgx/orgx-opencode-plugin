@@ -213,14 +213,9 @@ export function createOrgXOpenCodePlugin(
       );
       if (runtimeHydration) {
         gatewayScopedSessions.add(key);
-        let start = sessionStarts.get(key);
-        if (!start) {
-          start = capture('session.created', payload).then(
-            () => runtimeHydration
-          );
-          sessionStarts.set(key, start);
+        if (!sessionStarts.has(key)) {
+          sessionStarts.set(key, Promise.resolve(runtimeHydration));
         }
-        await start;
         return runtimeHydration;
       }
 

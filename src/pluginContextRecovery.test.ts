@@ -216,7 +216,7 @@ describe('OpenCode failed-start context recovery', () => {
     expect(hydrateContextPack).toHaveBeenCalledTimes(1);
   });
 
-  it('gives an exact Gateway hydration precedence over a local SessionStart result', async () => {
+  it('gives Gateway hydration precedence without invoking claim-capable SessionStart', async () => {
     const sessionID = 'gateway-precedence';
     const hydrateContextPack = vi.fn(async () => ({
       ok: true,
@@ -258,6 +258,9 @@ describe('OpenCode failed-start context recovery', () => {
 
       expect(output.message.system).toBe('exact Gateway context');
       expect(hydrateContextPack).not.toHaveBeenCalled();
+      expect(
+        bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)
+      ).toEqual(['chat.message']);
     } finally {
       clearRuntimeSessionHydration('/work/repo', sessionID);
     }
@@ -424,6 +427,15 @@ describe('OpenCode failed-start context recovery', () => {
   });
 
   it('suppresses recovery when model-work consumption cannot be persisted', async () => {
+    const clearSessionWorkContext = vi.fn(async () => ({
+      cleared: true,
+      reason: 'wizard_cleared',
+    } as const));
+    const clearPrivateSessionContext = vi.fn(async () => ({
+      cleared: true,
+      reason: 'private_state_cleared',
+      removedFiles: 1,
+    } as const));
     const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) =>
       nativeEvent === 'session.idle'
         ? {
@@ -437,6 +449,8 @@ describe('OpenCode failed-start context recovery', () => {
     const captureLogger = logger();
     const active = await hooks({
       bridgeSessionSummary,
+      clearSessionWorkContext,
+      clearPrivateSessionContext,
       logger: captureLogger,
       env: {},
     });
@@ -452,6 +466,8 @@ describe('OpenCode failed-start context recovery', () => {
     expect(captureLogger.warn).toHaveBeenCalledWith(
       '[orgx-opencode-plugin] model work consumption marker unverified; SessionEnd recovery was suppressed'
     );
+    expect(clearSessionWorkContext).toHaveBeenCalledTimes(1);
+    expect(clearPrivateSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it('treats a requested tool execution as real model work after a later error', async () => {
@@ -530,6 +546,9 @@ describe('OpenCode failed-start context recovery', () => {
       expect(
         bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)
       ).toContain('session.abandoned');
+      expect(
+        bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)
+      ).not.toContain('session.created');
     } finally {
       clearRuntimeSessionHydration('/work/repo', sessionID);
     }
