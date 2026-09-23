@@ -46,10 +46,26 @@ function duration(...values: unknown[]): number | undefined {
   return value === undefined ? undefined : Math.max(0, Math.round(value));
 }
 
-function workEpisodeCaptureEnabled(value: string | undefined): boolean {
-  return ['bounded', 'on', 'true', '1'].includes(
-    String(value ?? '').trim().toLowerCase()
-  );
+/**
+ * Capture mode is pinned explicitly on every call (plan v3 §5.10), matching the
+ * Wizard's installed Claude/Codex hooks: an ambient
+ * ORGX_SESSION_WORK_EPISODE_CAPTURE — set for another client, or inherited
+ * from a parent process — must not widen what OpenCode captures. Bounded
+ * capture (redacted request excerpts) is an OpenCode-specific opt-in.
+ */
+export function resolveOpenCodeWorkCapture(
+  env: Env = process.env
+): 'bounded' | 'metadata-only' {
+  return String(env.ORGX_OPENCODE_WORK_CAPTURE ?? '').trim().toLowerCase() ===
+    'bounded'
+    ? 'bounded'
+    : 'metadata-only';
+}
+
+function withoutAmbientCaptureMode(env: Env): Env {
+  const next = { ...env };
+  delete next.ORGX_SESSION_WORK_EPISODE_CAPTURE;
+  return next;
 }
 
 function boundedPrompt(value: unknown): string | undefined {
@@ -145,7 +161,7 @@ export function sanitizeOpenCodePayload(
     tool_use_id: string(root.callID, properties.callID),
     duration_ms: duration(root.duration_ms, root.duration, properties.duration),
     permission_mode: string(root.permission, properties.permission),
-    prompt: workEpisodeCaptureEnabled(env.ORGX_SESSION_WORK_EPISODE_CAPTURE)
+    prompt: resolveOpenCodeWorkCapture(env) === 'bounded'
       ? boundedPrompt(string(root.prompt, root.message, properties.prompt))
       : undefined,
     root_session_id: string(root.rootSessionID, root.root_session_id),
@@ -244,9 +260,10 @@ export async function bridgeOpenCodeSessionSummary({
     argv: [
       `--event=${canonicalEvent}`,
       '--source_client=opencode',
+      `--work_episode_capture=${resolveOpenCodeWorkCapture(env)}`,
       ...(queueDir ? [`--queue_dir=${queueDir}`] : []),
     ],
-    env,
+    env: withoutAmbientCaptureMode(env),
     stdinText: JSON.stringify(sanitizeOpenCodePayload(payload, directory, env)),
   });
   const fallbackDeliveryTriggered =
