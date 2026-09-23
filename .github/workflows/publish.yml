@@ -38,6 +38,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Stamp manifest fingerprint from the packed file set
+        run: node scripts/stamp-manifest.mjs
+        env:
+          ORGX_MANIFEST_SIGNING_KEY: ${{ secrets.ORGX_MANIFEST_SIGNING_KEY }}
+
       - name: Pack release artifact
         run: npm run pack
 
