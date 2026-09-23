@@ -11,5 +11,5 @@
     "attention:reply_in_place"
   ],
   "driver_ids": ["opencode"],
-  "notes": "fingerprint + signature are populated by the npm prepublish step; the dev build ships unsigned and gets 'degraded' status from the server."
+  "notes": "fingerprint + signature are stamped by scripts/stamp-manifest.mjs in the publish workflow after build and before npm pack; dev builds ship empty and get 'degraded' status from the server."
 }
