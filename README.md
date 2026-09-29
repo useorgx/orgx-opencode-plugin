@@ -44,6 +44,8 @@ allowlisted lifecycle shape into the shared durable session-summary queue.
 `session.idle` becomes `RunEnd`, so one completed agent response can issue one
 run receipt without pretending the multi-turn OpenCode conversation ended.
 `session.deleted` remains the whole-session terminal boundary.
+An auth or provider failure before a completed assistant response or tool
+request does not create a run receipt.
 
 The adapter observes session, user-message, permission, and tool lifecycle
 events. Capture is metadata-only by default. Set
@@ -83,11 +85,15 @@ missing, mismatched, or unverified v2 activation fails closed; the task is not
 prompted with ambient organizational authority.
 
 For an interactive session without a Gateway activation, `session.created`
-(or the first session-bound message/model request if that event was missed)
-requests one context pack for the most specific configured anchor: task,
-workstream, initiative, then workspace. Hydration is exactly once per native
-OpenCode session. Internal model requests without a native session ID receive
-no OrgX context or authority.
+(or the first session-bound user message if that event was missed) first asks
+the Wizard to claim any staged cwd-only context for the exact native session.
+A successful local claim is delivered on that user turn without a network
+refresh. Otherwise, the plugin requests one context pack for the most specific
+configured anchor: task, workstream, initiative, then workspace. Hydration is
+exactly once per native OpenCode session. The bounded context is retried after
+a pre-inference failure, then stops being added after a completed assistant
+response or tool request. Auxiliary title and small-model system transforms do
+not receive it.
 
 The full pack and any pending activation are stored outside the repository in
 owner-only Wizard state. Each directory is keyed by the SHA-256 of the resolved
@@ -110,10 +116,15 @@ orgx-wizard sessions context set --file - --cwd <active-project> \
 The digest is calculated from recursively key-sorted JSON (array order is
 preserved and undefined values are omitted). The plugin accepts activation only
 when the Wizard returns the v1 acknowledgement and v2 activation versions plus
-the exact resolved cwd, source client, native session ID, and digest. It clears
-that exact lease on `session.deleted`, and it clears stale authority when a
-refresh fails or returns an invalid API envelope. If the Wizard is offline, the
-plugin keeps the exact context in that session's private pending file.
+the exact resolved cwd, source client, native session ID, and digest. After
+model work, `session.deleted` clears that exact lease. If the session ends
+before a completed assistant response or tool request, the Wizard atomically
+returns the exact v2 lease to one cwd-only v1 activation before the plugin
+clears private state. A newer cwd-only activation is never overwritten. If
+release cannot be proven, the exact lease and private context remain intact.
+The plugin also clears stale authority when a refresh fails or returns an
+invalid API envelope. If the Wizard is offline, it keeps the exact context in
+that session's private pending file.
 Interactive sessions may continue with briefing explicitly marked
 non-authoritative; Gateway dispatches fail before prompting. Context fetch and
 activation each time out after 3 seconds by default.
