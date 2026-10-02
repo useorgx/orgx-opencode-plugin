@@ -131,4 +131,48 @@ describe('OpenCode attention bridge', () => {
     ).rejects.toThrow('native request disappeared');
     expect(receipts).toEqual(['resuming', 'resume_failed']);
   });
+
+  it('sends each write idempotency_key as a stable Idempotency-Key header', async () => {
+    const writes: Array<{ url: string; key: string | null; body: Record<string, unknown> }> = [];
+    const gets: Array<string | null> = [];
+    const request = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+      const key = new Headers(init?.headers).get('idempotency-key');
+      if (init?.method === 'GET') {
+        gets.push(key);
+        return Response.json({ question: { resolved: true, answer: 'Continue' } });
+      }
+      writes.push({ url: href, key, body: JSON.parse(String(init?.body)) });
+      return href.endsWith('/api/client/live/attention')
+        ? Response.json({ decision_id: 'decision-1' })
+        : Response.json({ ok: true });
+    });
+    const run = () =>
+      bridgeOpenCodeQuestions({
+        request: {
+          id: 'request-1',
+          sessionID: 'session-1',
+          questions: [{ question: 'Continue?' }],
+        },
+        apiKey: 'oxk_test',
+        initiativeId: '11111111-1111-4111-8111-111111111111',
+        baseUrl: 'https://useorgx.test',
+        reply: async () => true,
+        fetchImpl: request as typeof fetch,
+        pollIntervalMs: 0,
+      });
+
+    await run();
+    const firstAttempt = writes.splice(0);
+    await run();
+
+    expect(firstAttempt.map((write) => write.key)).toEqual([
+      'opencode:session-1:request-1:0',
+      'opencode:decision-1:resuming',
+      'opencode:decision-1:resumed',
+    ]);
+    for (const write of firstAttempt) expect(write.key).toBe(write.body.idempotency_key);
+    expect(writes).toEqual(firstAttempt);
+    expect(gets.every((key) => key === null)).toBe(true);
+  });
 });

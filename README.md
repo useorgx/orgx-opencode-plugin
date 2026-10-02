@@ -257,7 +257,8 @@ retries are safe and do not create duplicate work. No raw transcript is sent.
 `startPeer()` posts runtime presence every 20 seconds and a license heartbeat on
 boot and every 7 days. Presence includes the shared `plugin-health.v1` contract:
 endpoint/auth state, release identity, hook coverage, replay/dead-letter state,
-tool-profile parity, and entity inspection coverage. The manifest is read from
+the tool profile the MCP endpoint requests (tool and entity counts are reported
+as `null` with `measurement: "not_probed"` until they are measured). The manifest is read from
 `plugin.manifest.json`; when the fingerprint + signature are missing (dev
 builds), the server marks the license `degraded` in permissive mode — read-only
 features keep working, but deviation ingestion 402s until a signed manifest

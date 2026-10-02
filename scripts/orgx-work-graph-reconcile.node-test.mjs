@@ -12,6 +12,7 @@ import {
   main,
   normalizeSourceClient,
   parseArgs,
+  payloadDigest,
   postWorkGraphReport,
 } from './orgx-work-graph-reconcile.mjs';
 
@@ -128,4 +129,28 @@ test('work graph reconciler dry-run writes report without credentials', async ()
   const written = JSON.parse(readFileSync(output, 'utf8'));
   assert.equal(written.work_graph_fingerprint, result.work_graph_fingerprint);
   assert.equal(written.report.raw_transcripts_sent, false);
+});
+
+test('work graph report post sends a stable digest-bound Idempotency-Key', async () => {
+  const seen = [];
+  const fetchImpl = async (_url, init) => {
+    seen.push(init);
+    return { ok: true, status: 202, json: async () => ({ ok: true }) };
+  };
+  const report = { work_graph_fingerprint: 'wgf_test' };
+  const args = { report, baseUrl: 'https://x.test', apiKey: 'k', fetchImpl };
+
+  await postWorkGraphReport(args);
+  await postWorkGraphReport(args);
+  await postWorkGraphReport({ ...args, report: { work_graph_fingerprint: 'wgf_other' } });
+
+  const [first, retry, other] = seen;
+  assert.equal(
+    first.headers['Idempotency-Key'],
+    `work-graph-report:${payloadDigest(first.body).slice(7, 39)}`
+  );
+  assert.equal(first.headers['X-OrgX-Payload-Digest'], payloadDigest(first.body));
+  assert.equal(retry.headers['Idempotency-Key'], first.headers['Idempotency-Key']);
+  assert.equal(retry.body, first.body);
+  assert.notEqual(other.headers['Idempotency-Key'], first.headers['Idempotency-Key']);
 });
