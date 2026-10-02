@@ -148,13 +148,25 @@ export async function buildPluginContinuityHealth({
       terminal_session_event: 'session.deleted',
       raw_content_included: false,
     },
+    // The OrgX MCP server has no `opencode` profile, so report the profile the
+    // endpoint actually requests. Tool and entity counts are not probed here;
+    // null keeps the health contract from claiming coverage it never measured.
     capabilities: {
-      profile: 'opencode',
-      profile_tools: 33,
-      manifest_tools: 33,
-      inspectable_entities: 20,
-      visible_entities: 20,
+      profile: resolveEndpointProfile(endpoint),
+      profile_tools: null,
+      manifest_tools: null,
+      inspectable_entities: null,
+      visible_entities: null,
+      measurement: 'not_probed',
     },
     last_receipt_at: outboxHealth.last_replay_at,
   };
+}
+
+function resolveEndpointProfile(endpoint: string): string | null {
+  try {
+    return new URL(endpoint).searchParams.get('profile')?.trim() || null;
+  } catch {
+    return null;
+  }
 }
