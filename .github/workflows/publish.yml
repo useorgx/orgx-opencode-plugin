@@ -1,6 +1,8 @@
 name: Publish to NPM
 
 on:
+  push:
+    tags: ["v*"]
   release:
     types: [published]
   workflow_dispatch:
@@ -8,6 +10,10 @@ on:
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
