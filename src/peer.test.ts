@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+
+const RELEASE_VERSION = JSON.parse(
+  readFileSync(new URL('../plugin.manifest.json', import.meta.url), 'utf8'),
+).version;
 
 const sdk = vi.hoisted(() => ({
   options: undefined as Record<string, unknown> | undefined,
@@ -110,7 +115,7 @@ describe('startPeer', () => {
     );
 
     expect(presence?.body).toMatchObject({
-      gateway_version: '0.1.0-alpha.20',
+      gateway_version: RELEASE_VERSION,
       metadata: {
         execution_provider: null,
         execution_provider_id: null,
