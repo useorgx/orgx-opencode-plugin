@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/orgx-opencode-plugin",
-  "version": "0.1.0-alpha.20",
+  "version": "0.1.0-alpha.22",
   "publishConfig": {
     "access": "public"
   },
@@ -61,5 +61,8 @@
     "type": "git",
     "url": "git+https://github.com/useorgx/orgx-opencode-plugin.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "source-map-js@>=1 <2": "1.2.2"
+  }
 }
