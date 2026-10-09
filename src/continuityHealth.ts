@@ -106,7 +106,7 @@ export async function inspectContinuityOutbox({
 export async function buildPluginContinuityHealth({
   version,
   authState,
-  endpoint = process.env.ORGX_MCP_URL ?? 'https://mcp.useorgx.com/mcp',
+  endpoint = process.env.ORGX_MCP_URL ?? 'https://mcp.useorgx.com/mcp?profile=v2',
   outbox,
 }: {
   version: string;

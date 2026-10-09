@@ -319,3 +319,11 @@ is not used by GitHub Actions.
 ## Status
 
 Alpha. Part of the Sovereign Execution initiative (`993cabeb`).
+
+## Hosted MCP endpoint
+
+The continuity health endpoint defaults to `profile=v2` and preserves an
+explicit `ORGX_MCP_URL`. It reports tool counts as unmeasured: this plugin uses
+Gateway Protocol v1 and REST for execution rather than calling hosted MCP
+routers. Gateway terminal receipts remain independent of portable work receipt
+imports. No cross-tool write retry or receipt conversion is performed.
