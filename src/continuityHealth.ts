@@ -27,6 +27,16 @@ export type ContinuityOutboxHealth = {
   last_replay_at: string | null;
 };
 
+export type CapabilitySnapshot = {
+  profile_tools?: number;
+  manifest_tools?: number;
+  inspectable_entities?: number;
+  visible_entities?: number;
+};
+
+export const DEFAULT_ORGX_MCP_ENDPOINT =
+  'https://mcp.useorgx.com/mcp?profile=executor';
+
 async function readText(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
@@ -106,15 +116,23 @@ export async function inspectContinuityOutbox({
 export async function buildPluginContinuityHealth({
   version,
   authState,
-  endpoint = process.env.ORGX_MCP_URL ?? 'https://mcp.useorgx.com/mcp',
+  endpoint =
+    process.env.ORGX_MCP_URL ?? DEFAULT_ORGX_MCP_ENDPOINT,
   outbox,
+  capabilitySnapshot,
 }: {
   version: string;
   authState: string;
   endpoint?: string;
   outbox?: ContinuityOutboxHealth;
+  capabilitySnapshot?: CapabilitySnapshot;
 }) {
   const outboxHealth = outbox ?? (await inspectContinuityOutbox());
+  const profile = resolveEndpointProfile(endpoint);
+  const measured =
+    capabilitySnapshot !== null &&
+    typeof capabilitySnapshot === 'object' &&
+    !Array.isArray(capabilitySnapshot);
   const hookEvents = [
     'task_started',
     'task_step',
@@ -124,6 +142,7 @@ export async function buildPluginContinuityHealth({
   return {
     schema_version: 'plugin-health.v1',
     endpoint,
+    source_client: 'opencode',
     auth_state: authState,
     release: {
       installed: version,
@@ -138,12 +157,36 @@ export async function buildPluginContinuityHealth({
     },
     outbox: outboxHealth,
     capabilities: {
-      profile: 'opencode',
-      profile_tools: 33,
-      manifest_tools: 33,
-      inspectable_entities: 20,
-      visible_entities: 20,
+      profile,
+      profile_tools: measured
+        ? normalizeCapabilityCount(capabilitySnapshot?.profile_tools)
+        : null,
+      manifest_tools: measured
+        ? normalizeCapabilityCount(capabilitySnapshot?.manifest_tools)
+        : null,
+      inspectable_entities: measured
+        ? normalizeCapabilityCount(capabilitySnapshot?.inspectable_entities)
+        : null,
+      visible_entities: measured
+        ? normalizeCapabilityCount(capabilitySnapshot?.visible_entities)
+        : null,
+      measurement: measured ? 'measured' : 'not_probed',
     },
     last_receipt_at: outboxHealth.last_replay_at,
   };
+}
+
+function resolveEndpointProfile(endpoint: string): string | null {
+  try {
+    const profile = new URL(endpoint).searchParams.get('profile')?.trim();
+    return profile || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeCapabilityCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.round(value))
+    : null;
 }

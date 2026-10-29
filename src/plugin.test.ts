@@ -45,9 +45,31 @@ describe('OrgXOpenCodePlugin', () => {
       apiKey: 'oxk_test',
       workspaceId: 'workspace-123',
       baseUrl: 'https://example.org',
+      mcpEndpoint: 'https://mcp.useorgx.com/mcp?profile=executor',
     });
     expect(logger.log).toHaveBeenCalledWith(
       '[orgx-opencode-plugin] native OpenCode plugin peer started'
+    );
+  });
+
+  it('preserves an explicit MCP profile override', async () => {
+    const startPeer = vi.fn(async () => ({ stop: vi.fn() }));
+    const hooks = await loadHooks({
+      startPeer,
+      logger: createLogger(),
+      env: {
+        ORGX_API_KEY: 'oxk_test',
+        ORGX_WORKSPACE_ID: 'workspace-123',
+        ORGX_MCP_URL: 'https://mcp.useorgx.com/mcp?profile=planner',
+      },
+    });
+
+    await hooks.event({ event: { type: 'server.connected' } });
+
+    expect(startPeer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpEndpoint: 'https://mcp.useorgx.com/mcp?profile=planner',
+      })
     );
   });
 

@@ -4,6 +4,7 @@ import { createOpencodeClient } from '@opencode-ai/sdk/v2';
 import type { StartedPeer, StartPeerOptions } from './peer.js';
 import { hydrateContextPack } from './contextPackHydration.js';
 import { capturePluginException } from './sentry.js';
+import { DEFAULT_ORGX_MCP_ENDPOINT } from './continuityHealth.js';
 import {
   bridgeOpenCodeQuestions,
   parseQuestionRequest,
@@ -36,6 +37,7 @@ export function createOrgXOpenCodePlugin(
     const apiKey = env.ORGX_API_KEY;
     const workspaceId = env.ORGX_WORKSPACE_ID;
     const baseUrl = env.ORGX_BASE_URL;
+    const mcpEndpoint = env.ORGX_MCP_URL ?? DEFAULT_ORGX_MCP_ENDPOINT;
 
     if (!apiKey || !workspaceId) {
       if (!warnedMissingConfig) {
@@ -47,7 +49,7 @@ export function createOrgXOpenCodePlugin(
       return;
     }
 
-    peer = start({ apiKey, workspaceId, baseUrl });
+    peer = start({ apiKey, workspaceId, baseUrl, mcpEndpoint });
     try {
       await peer;
       logger.log('[orgx-opencode-plugin] native OpenCode plugin peer started');

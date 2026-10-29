@@ -34,6 +34,10 @@ Set `ORGX_BASE_URL` only when testing against a non-production OrgX API. Until
 the npm package is updated, use the direct peer command below from a checked-out
 copy of this repository.
 
+Continuity health advertises the hosted MCP executor surface by default:
+`https://mcp.useorgx.com/mcp?profile=executor`. Set `ORGX_MCP_URL` only to
+preserve an intentional profile or non-production endpoint override.
+
 ### Resumable questions
 
 OpenCode's native `question.asked` event can be routed to the same OrgX

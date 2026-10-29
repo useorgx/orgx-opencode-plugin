@@ -7,11 +7,14 @@
 
 import { startPeer } from './peer.js';
 import { captureFatalPluginException } from './sentry.js';
+import { DEFAULT_ORGX_MCP_ENDPOINT } from './continuityHealth.js';
 
 async function main() {
   const apiKey = process.env.ORGX_API_KEY;
   const workspaceId = process.env.ORGX_WORKSPACE_ID;
   const baseUrl = process.env.ORGX_BASE_URL ?? 'https://useorgx.com';
+  const mcpEndpoint =
+    process.env.ORGX_MCP_URL ?? DEFAULT_ORGX_MCP_ENDPOINT;
 
   if (!apiKey || !workspaceId) {
     // eslint-disable-next-line no-console
@@ -21,7 +24,7 @@ async function main() {
     process.exit(2);
   }
 
-  const peer = await startPeer({ apiKey, workspaceId, baseUrl });
+  const peer = await startPeer({ apiKey, workspaceId, baseUrl, mcpEndpoint });
 
   const shutdown = async () => {
     await peer.stop();
