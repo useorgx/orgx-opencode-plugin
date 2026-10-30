@@ -6,6 +6,8 @@ import {
   publishRuntimeSessionHydration,
 } from './runtimeSessionContext';
 
+const ACTIVATION_SHA = 'a'.repeat(64);
+
 type Hooks = {
   event(input: { event: Record<string, unknown> & { type: string } }): Promise<void>;
   'chat.message'(
@@ -68,6 +70,57 @@ function assistantEvent(
 }
 
 describe('OpenCode failed-start context recovery', () => {
+  it.each(['session_abandoned', 'session_ended', 'session_context_unverified'])('does not hydrate a Wizard-retired session: %s', async (skipped) => {
+    const hydrateContextPack = vi.fn(async () => ({ ok: true, additionalContext: 'must not reach the model' }));
+    const bridgeSessionSummary = vi.fn(async () => ({ ok: true, skipped }));
+    const active = await hooks({ hydrateContextPack, bridgeSessionSummary, env: {}, logger: logger() });
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const output = { message: { system: 'native' }, parts: [] };
+      await active['chat.message']({ sessionID: 'retired' }, output);
+      await active.event({ event: sessionEvent('session.created', 'retired') });
+      expect(output.message.system).toBe('native');
+    }
+    expect(hydrateContextPack).not.toHaveBeenCalled();
+    expect(bridgeSessionSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a pending claim and suppresses late injection after deletion', async () => {
+    let finishStart!: (value: Record<string, unknown>) => void;
+    const hydrateContextPack = vi.fn(async () => ({ ok: true }));
+    const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) => nativeEvent === 'session.created'
+      ? new Promise<Record<string, unknown>>((resolve) => { finishStart = resolve; })
+      : { ok: true, activation_release_state: 'released' });
+    const active = await hooks({ hydrateContextPack, bridgeSessionSummary, env: {}, logger: logger() });
+    const output = { message: { system: 'native' }, parts: [] };
+    const chatting = active['chat.message']({ sessionID: 'pending' }, output);
+    await vi.waitFor(() => expect(finishStart).toBeTypeOf('function'));
+    let deleted = false;
+    const deleting = active.event({ event: sessionEvent('session.deleted', 'pending') }).then(() => { deleted = true; });
+    await Promise.resolve();
+    expect(deleted).toBe(false);
+    expect(bridgeSessionSummary).toHaveBeenCalledTimes(1);
+    finishStart({ ok: true, activation_sha256: ACTIVATION_SHA, hook_output: {
+      continue: true, suppressOutput: true,
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'late claimed context' },
+    } });
+    await Promise.all([chatting, deleting]);
+    await active.event({ event: sessionEvent('session.created', 'pending') });
+    expect(output.message.system).toBe('native');
+    expect(hydrateContextPack).not.toHaveBeenCalled();
+    expect(bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)).toEqual(['session.created', 'session.abandoned']);
+  });
+
+  it('preserves activation when an older Wizard provides no generation fingerprint', async () => {
+    const clearSessionWorkContext = vi.fn();
+    const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) => nativeEvent === 'session.idle'
+      ? { ok: true, work_context_consumed: true } : { ok: true });
+    const active = await hooks({ clearSessionWorkContext, bridgeSessionSummary, env: {}, logger: logger() });
+    await active.event({ event: sessionEvent('session.created', 'legacy-wizard') });
+    await active.event({ event: assistantEvent('legacy-wizard') });
+    await active.event({ event: sessionEvent('session.deleted', 'legacy-wizard') });
+    expect(clearSessionWorkContext).not.toHaveBeenCalled();
+  });
+
   it('injects Wizard SessionStart context into the first model request', async () => {
     const hydrateContextPack = vi.fn(async () => ({
       ok: true,
@@ -87,7 +140,7 @@ describe('OpenCode failed-start context recovery', () => {
               },
             },
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const active = await hooks({
       hydrateContextPack,
@@ -129,7 +182,7 @@ describe('OpenCode failed-start context recovery', () => {
               },
             },
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const active = await hooks({
       hydrateContextPack,
@@ -235,12 +288,12 @@ describe('OpenCode failed-start context recovery', () => {
               },
             },
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     publishRuntimeSessionHydration('/work/repo', sessionID, {
       ok: true,
       additionalContext: 'exact Gateway context',
-      sessionContext: { activated: true, reason: 'wizard_activated' },
+      sessionContext: { activated: true, reason: 'wizard_activated', activationSha256: ACTIVATION_SHA },
     });
     try {
       const active = await hooks({
@@ -281,7 +334,7 @@ describe('OpenCode failed-start context recovery', () => {
             activation_released: true,
             activation_release_state: 'released',
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const active = await hooks({
       clearSessionWorkContext,
@@ -336,7 +389,7 @@ describe('OpenCode failed-start context recovery', () => {
             activation_released: false,
             activation_release_state: 'preserved',
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const captureLogger = logger();
     const active = await hooks({
@@ -371,7 +424,7 @@ describe('OpenCode failed-start context recovery', () => {
     const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) =>
       nativeEvent === 'session.idle'
         ? { ok: true, queued: true, state_persisted: true }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const active = await hooks({
       clearSessionWorkContext,
@@ -403,7 +456,7 @@ describe('OpenCode failed-start context recovery', () => {
     const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) =>
       nativeEvent === 'session.idle'
         ? { ok: true, queued: true, state_persisted: true }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const active = await hooks({
       bridgeSessionSummary,
@@ -444,7 +497,7 @@ describe('OpenCode failed-start context recovery', () => {
             state_persisted: false,
             work_context_consumed: false,
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     const captureLogger = logger();
     const active = await hooks({
@@ -475,7 +528,7 @@ describe('OpenCode failed-start context recovery', () => {
       cleared: true,
       reason: 'wizard_cleared',
     } as const));
-    const bridgeSessionSummary = vi.fn(async () => ({ ok: true }));
+    const bridgeSessionSummary = vi.fn(async () => ({ ok: true, activation_sha256: ACTIVATION_SHA }));
     const active = await hooks({
       clearSessionWorkContext,
       bridgeSessionSummary,
@@ -516,12 +569,12 @@ describe('OpenCode failed-start context recovery', () => {
             session_state_discarded: true,
             activation_release_state: 'absent',
           }
-        : { ok: true }
+        : { ok: true, activation_sha256: ACTIVATION_SHA }
     );
     publishRuntimeSessionHydration('/work/repo', sessionID, {
       ok: true,
       additionalContext: 'Gateway-dispatched exact task context',
-      sessionContext: { activated: true, reason: 'wizard_activated' },
+      sessionContext: { activated: true, reason: 'wizard_activated', activationSha256: ACTIVATION_SHA },
     });
     try {
       const active = await hooks({

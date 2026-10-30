@@ -15,6 +15,7 @@ type ClearSessionWorkContext = (input: {
   env?: Env;
   projectDir?: string;
   sessionId?: string;
+  expectedActivationSha256?: string;
 }) => Promise<SessionContextClearance>;
 type ClearPrivateSessionContext = (input: {
   env?: Env;
@@ -113,9 +114,11 @@ export function contextHydrationKey(
 
 async function clearExactContext(
   clearContext: ClearSessionWorkContext,
-  input: { env: Env; projectDir: string; sessionId: string },
+  input: { env: Env; projectDir: string; sessionId: string; expectedActivationSha256?: string },
   onException: (error: unknown, stage: ExceptionStage) => void
 ): Promise<SessionContextClearance> {
+  // Identity alone is insufficient: a later activation can have the same owner.
+  if (!input.expectedActivationSha256) return { cleared: false, reason: 'wizard_unverified' };
   return clearContext(input).catch((error) => {
     onException(error, 'session_context_clear');
     return { cleared: false, reason: 'wizard_unavailable' };
@@ -148,6 +151,7 @@ export async function finalizeSessionContext({
   onException,
   projectDir,
   sessionId,
+  expectedActivationSha256,
 }: {
   capture: Capture;
   clearContext: ClearSessionWorkContext;
@@ -159,13 +163,15 @@ export async function finalizeSessionContext({
   onException: (error: unknown, stage: ExceptionStage) => void;
   projectDir: string;
   sessionId: string;
+  expectedActivationSha256?: string;
 }): Promise<void> {
   const input = { env, projectDir, sessionId };
+  const exactInput = { ...input, expectedActivationSha256 };
 
   if (mode === 'gateway_abandoned') {
     const clearance = await clearExactContext(
       clearContext,
-      input,
+      exactInput,
       onException
     );
     if (!clearance.cleared) {
@@ -212,15 +218,14 @@ export async function finalizeSessionContext({
     return;
   }
 
-  const [clearance, privateClearance] = await Promise.all([
-    clearExactContext(clearContext, input, onException),
-    clearPrivateContext(clearPrivate, input, onException),
-  ]);
+  const clearance = await clearExactContext(clearContext, exactInput, onException);
   if (!clearance.cleared) {
     logger.warn(
       `[orgx-opencode-plugin] session context clear unverified: ${clearance.reason}`
     );
+    return;
   }
+  const privateClearance = await clearPrivateContext(clearPrivate, input, onException);
   if (!privateClearance.cleared) {
     logger.warn(
       `[orgx-opencode-plugin] private session context clear unverified: ${privateClearance.reason}`

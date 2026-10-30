@@ -47,6 +47,7 @@ type ClearSessionWorkContext = (input: {
   env?: Env;
   projectDir?: string;
   sessionId?: string;
+  expectedActivationSha256?: string;
 }) => Promise<SessionContextClearance>;
 type ClearPrivateSessionContext = (input: {
   env?: Env;
@@ -94,6 +95,8 @@ export function createOrgXOpenCodePlugin(
   const sessionsWithModelWork = new Set<string>();
   const sessionsWithRunEnd = new Set<string>();
   const gatewayScopedSessions = new Set<string>();
+  const retiredSessions = new Set<string>();
+  const sessionActivations = new Map<string, string>();
   let warnedMissingConfig = false;
   let warnedMissingAttentionConfig = false;
   const activeAttention = new Set<string>();
@@ -206,6 +209,12 @@ export function createOrgXOpenCodePlugin(
       if (!normalizedProjectDir || !key) {
         return { ok: true, skipped: 'project_directory_unavailable' };
       }
+      if (retiredSessions.has(key)) return { ok: true, skipped: 'session_retired' };
+      const rememberActivation = (value: unknown) => {
+        if (!sessionActivations.has(key) && typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)) {
+          sessionActivations.set(key, value);
+        }
+      };
 
       const runtimeHydration = readRuntimeSessionHydration(
         normalizedProjectDir,
@@ -213,6 +222,7 @@ export function createOrgXOpenCodePlugin(
       );
       if (runtimeHydration) {
         gatewayScopedSessions.add(key);
+        rememberActivation(runtimeHydration.sessionContext?.activationSha256);
         if (!sessionStarts.has(key)) {
           sessionStarts.set(key, Promise.resolve(runtimeHydration));
         }
@@ -223,13 +233,23 @@ export function createOrgXOpenCodePlugin(
       if (existing) return existing;
       const start = (async () => {
         const sessionStart = await capture('session.created', payload);
+        rememberActivation(sessionStart?.activation_sha256);
+        if (sessionStart?.skipped === 'session_abandoned' || sessionStart?.skipped === 'session_ended' ||
+            sessionStart?.skipped === 'session_context_unverified') {
+          retiredSessions.add(key);
+        }
+        if (retiredSessions.has(key)) return { ok: true, skipped: 'session_retired' } as const;
         const additionalContext = sessionStartAdditionalContext(sessionStart);
         if (additionalContext) {
           const claimed = { ok: true, additionalContext } as const;
           contextHydrations.set(key, Promise.resolve(claimed));
           return claimed;
         }
-        return hydrateProjectContext(normalizedProjectDir, sessionId);
+        const hydrated = await hydrateProjectContext(normalizedProjectDir, sessionId);
+        rememberActivation(hydrated.sessionContext?.activationSha256);
+        return retiredSessions.has(key)
+          ? { ok: true, skipped: 'session_retired' } as const
+          : hydrated;
       })();
       sessionStarts.set(key, start);
       return start;
@@ -243,6 +263,7 @@ export function createOrgXOpenCodePlugin(
             sessionID: sessionId,
           });
           const key = contextHydrationKey(projectDir, sessionId);
+          if (key && retiredSessions.has(key)) return;
           if (!key || !sessionsWithModelWork.has(key)) {
             appendAdditionalContext(output.message, result.additionalContext);
           }
@@ -269,6 +290,14 @@ export function createOrgXOpenCodePlugin(
         const key = sessionId
           ? contextHydrationKey(projectDir, sessionId)
           : null;
+        if (key && retiredSessions.has(key)) return;
+        if (key && event.type === 'session.deleted') {
+          // Retire before awaiting startup so no late callback can inject or
+          // hydrate context after deletion. Cleanup waits for the exact claim.
+          retiredSessions.add(key);
+          await sessionStarts.get(key);
+          await contextHydrations.get(key);
+        }
         if (key && isSuccessfulAssistantCompletion(event)) {
           sessionsWithModelWork.add(key);
         }
@@ -342,7 +371,6 @@ export function createOrgXOpenCodePlugin(
           }
         }
         if (event.type === 'session.deleted' && sessionId) {
-          if (key) await contextHydrations.get(key);
           await finalizeSessionContext({
             capture,
             clearContext,
@@ -360,6 +388,7 @@ export function createOrgXOpenCodePlugin(
             },
             projectDir,
             sessionId,
+            expectedActivationSha256: key ? sessionActivations.get(key) : undefined,
           });
           if (key) {
             contextHydrations.delete(key);
@@ -367,6 +396,7 @@ export function createOrgXOpenCodePlugin(
             sessionsWithModelWork.delete(key);
             sessionsWithRunEnd.delete(key);
             gatewayScopedSessions.delete(key);
+            sessionActivations.delete(key);
           }
           clearRuntimeSessionHydration(projectDir, sessionId);
           return;
@@ -425,6 +455,7 @@ export function createOrgXOpenCodePlugin(
         if (sessionId) {
           await ensureSessionStart(sessionId, { sessionID: sessionId });
           const key = contextHydrationKey(projectDir, sessionId);
+          if (key && retiredSessions.has(key)) return;
           if (key) sessionsWithModelWork.add(key);
         }
         await capture('tool.execute.before', {
@@ -436,6 +467,8 @@ export function createOrgXOpenCodePlugin(
         const sessionId = nativeSessionId(toolInput);
         if (sessionId) {
           await ensureSessionStart(sessionId, { sessionID: sessionId });
+          const key = contextHydrationKey(projectDir, sessionId);
+          if (key && retiredSessions.has(key)) return;
         }
         await capture('tool.execute.after', toolInput);
       },

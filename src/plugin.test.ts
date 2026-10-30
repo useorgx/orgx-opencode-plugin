@@ -297,8 +297,8 @@ describe('OrgXOpenCodePlugin', () => {
     expect(hooks).not.toHaveProperty('experimental.chat.system.transform');
   });
 
-  it('isolates hydration caches by native session and drops a deleted session', async () => {
-    const hydrateContextPack = vi.fn(async () => ({ ok: true } as const));
+  it('isolates hydration caches and does not restart a deleted native session', async () => {
+    const hydrateContextPack = vi.fn(async () => ({ ok: true, sessionContext: { activated: true, reason: 'wizard_activated', activationSha256: 'a'.repeat(64) } } as const));
     const clearSessionWorkContext = vi.fn(async () => ({
       cleared: true,
       reason: 'wizard_cleared',
@@ -343,13 +343,14 @@ describe('OrgXOpenCodePlugin', () => {
 
     expect(
       hydrateContextPack.mock.calls.map(([call]) => call.sessionId)
-    ).toEqual(['session-a', 'session-b', 'session-a']);
+    ).toEqual(['session-a', 'session-b']);
     expect(clearSessionWorkContext).toHaveBeenCalledWith({
       env: {
         ORGX_WORKSPACE_ID: 'workspace-123',
       },
       projectDir: '/work/repo',
       sessionId: 'session-a',
+      expectedActivationSha256: 'a'.repeat(64),
     });
     expect(clearPrivateSessionContext).toHaveBeenCalledTimes(1);
     expect(clearPrivateSessionContext).toHaveBeenCalledWith({
@@ -387,6 +388,7 @@ describe('OrgXOpenCodePlugin', () => {
         {
           env,
           clearPrivateSessionContext,
+          bridgeSessionSummary: vi.fn(async () => ({ ok: true, activation_sha256: 'a'.repeat(64) })),
           logger: createLogger(),
         },
         {
@@ -395,6 +397,7 @@ describe('OrgXOpenCodePlugin', () => {
         }
       );
 
+      await hooks.event({ event: { type: 'session.created', properties: { info: { id: 'session-a' } } } });
       await hooks.event({
         event: {
           type: 'message.updated',
