@@ -239,11 +239,16 @@ async function requestJson(
   signal?: AbortSignal,
   method = 'POST'
 ): Promise<Record<string, unknown>> {
+  // Every attention write carries a deterministic idempotency_key; send it as
+  // the header too so OrgX replays a retried create or ack instead of
+  // repeating it.
+  const idempotencyKey = string(asRecord(body)?.idempotency_key);
   const response = await request(url, {
     method,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal,

@@ -268,7 +268,8 @@ retries are safe and do not create duplicate work. No raw transcript is sent.
 `startPeer()` posts runtime presence every 20 seconds and a license heartbeat on
 boot and every 7 days. Presence includes the shared `plugin-health.v1` contract:
 endpoint/auth state, release identity, hook coverage, replay/dead-letter state,
-tool-profile parity, and entity inspection coverage. The manifest is read from
+the tool profile the MCP endpoint requests (tool and entity counts are reported
+as `null` with `measurement: "not_probed"` until they are measured). The manifest is read from
 `plugin.manifest.json`; when the fingerprint + signature are missing (dev
 builds), the server marks the license `degraded` in permissive mode — read-only
 features keep working, but deviation ingestion 402s until a signed manifest
@@ -329,3 +330,11 @@ is not used by GitHub Actions.
 ## Status
 
 Alpha. Part of the Sovereign Execution initiative (`993cabeb`).
+
+## Hosted MCP endpoint
+
+The continuity health endpoint defaults to `profile=v2` and preserves an
+explicit `ORGX_MCP_URL`. It reports tool counts as unmeasured: this plugin uses
+Gateway Protocol v1 and REST for execution rather than calling hosted MCP
+routers. Gateway terminal receipts remain independent of portable work receipt
+imports. No cross-tool write retry or receipt conversion is performed.

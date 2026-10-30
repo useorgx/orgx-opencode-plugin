@@ -96,6 +96,20 @@ function stableHash(value, length = 24) {
   return hashString(stableJson(value), length);
 }
 
+// Digest-bound delivery headers, matching the Codex plugin's deliveryAck.mjs.
+export const PAYLOAD_DIGEST_HEADER = "X-OrgX-Payload-Digest";
+
+export function payloadDigest(bodyText) {
+  return `sha256:${createHash("sha256").update(bodyText, "utf8").digest("hex")}`;
+}
+
+export function deliveryAckHeaders(operationId, bodyText) {
+  return {
+    "Idempotency-Key": operationId,
+    [PAYLOAD_DIGEST_HEADER]: payloadDigest(bodyText),
+  };
+}
+
 function slug(value, fallback = "unknown") {
   return (
     pickString(value)
@@ -901,17 +915,21 @@ export async function postWorkGraphReport({
   if (!token) {
     throw new Error("ORGX_API_KEY is required when posting a Work Graph report");
   }
+  const bodyText = JSON.stringify({
+    report,
+    public_share: false,
+    attach_artifact: false,
+  });
+  // One report body is one operation: its digest is a stable idempotency key.
+  const operationId = `work-graph-report:${payloadDigest(bodyText).slice(7, 39)}`;
   const response = await fetchImpl(`${normalizedBaseUrl}/api/client/work-graph/reports`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...deliveryAckHeaders(operationId, bodyText),
     },
-    body: JSON.stringify({
-      report,
-      public_share: false,
-      attach_artifact: false,
-    }),
+    body: bodyText,
   });
   const body = await response.json().catch(async () => ({
     text: await response.text().catch(() => ""),
