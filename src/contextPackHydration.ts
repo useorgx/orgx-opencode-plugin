@@ -96,6 +96,7 @@ export type ContextPackHydrationResult = {
   skipped?:
     | 'project_directory_unavailable'
     | 'session_id_unavailable'
+    | 'session_retired'
     | 'context_pack_unconfigured'
     | 'context_pack_request_failed'
     | 'context_pack_response_too_large'

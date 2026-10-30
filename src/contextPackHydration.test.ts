@@ -20,6 +20,7 @@ import {
   MAX_WIZARD_OUTPUT_BYTES,
   PENDING_CONTEXT_FILENAME,
   activateProvidedSessionWorkContext,
+  activateSessionWorkContext,
   buildContextPackRequest,
   clearPrivateSessionContext,
   clearSessionWorkContext,
@@ -30,6 +31,7 @@ import {
   sessionWorkContextSha256,
   type SpawnLike,
 } from './contextPackHydration.js';
+import { normalizeAbsoluteHostPath } from './hostPath.js';
 
 type HydrationInput = NonNullable<
   Parameters<typeof hydrateContextPackImpl>[0]
@@ -167,6 +169,33 @@ function wizardProcess(
 }
 
 describe('opencode context-pack hydration', () => {
+  it('retains the exact activation fingerprint acknowledged by Wizard', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const activationSha256 = 'a'.repeat(64);
+    const result = await activateSessionWorkContext({ context: sessionWorkContext, projectDir: '/work/repo', sessionId: 'owner', env: {},
+      spawnImpl: wizardProcess(calls, 0, (args) => JSON.stringify({
+        ackVersion: 'orgx-session-work-context-ack/v1', activationVersion: 'orgx-session-work-context-activation/v2',
+        ready: true, state: 'ready', cwd: args[args.indexOf('--cwd') + 1], sourceClient: 'opencode', sessionId: 'owner',
+        contextSha256: args[args.indexOf('--context-sha256') + 1], activationSha256,
+      })),
+    });
+    expect(result).toEqual({ activated: true, reason: 'wizard_activated', activationSha256 });
+  });
+
+  it.each([undefined, 'b'.repeat(64), 'a'.repeat(64)])('verifies conditional-clear acknowledgement %s', async (acknowledged) => {
+    const calls: Array<Record<string, unknown>> = [];
+    const expectedActivationSha256 = 'a'.repeat(64);
+    const result = await clearSessionWorkContext({ projectDir: '/work/repo', sessionId: 'owner', expectedActivationSha256, env: {},
+      spawnImpl: wizardProcess(calls, 0, (args) => JSON.stringify({
+        ackVersion: 'orgx-session-work-context-ack/v1', ready: false, state: 'missing', cleared: true,
+        cwd: args[args.indexOf('--cwd') + 1], sourceClient: 'opencode', sessionId: 'owner', expectedActivationSha256: acknowledged,
+      })),
+    });
+    expect(calls[0].args).toContain('--if-activation-sha256');
+    expect(calls[0].args).toContain(expectedActivationSha256);
+    expect(result.cleared).toBe(acknowledged === expectedActivationSha256);
+  });
+
   it('resolves task, workstream, initiative, then workspace anchor priority', () => {
     const config = resolveContextPackConfig({
       ORGX_API_KEY: 'oxk_test',
@@ -346,7 +375,7 @@ describe('opencode context-pack hydration', () => {
         '--file',
         '-',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -663,7 +692,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -780,7 +809,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',
@@ -963,7 +992,7 @@ describe('opencode context-pack hydration', () => {
         'context',
         'clear',
         '--cwd',
-        projectDir,
+        normalizeAbsoluteHostPath(projectDir),
         '--source-client',
         'opencode',
         '--session-id',

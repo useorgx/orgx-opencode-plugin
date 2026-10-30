@@ -16,6 +16,7 @@ const EVENT_MAP: Record<string, string> = {
   'session.idle': 'RunEnd',
   'session.error': 'RunEnd',
   'session.deleted': 'SessionEnd',
+  'session.abandoned': 'SessionAbandoned',
   'permission.asked': 'PermissionRequest',
   'tool.execute.before': 'PreToolUse',
   'tool.execute.after': 'PostToolUse',

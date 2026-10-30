@@ -46,6 +46,7 @@ const WIZARD_ENV_ALLOWLIST = new Set([
 
 export type SessionContextActivation = {
   activated: boolean;
+  activationSha256?: string;
   reason:
     | 'wizard_activated'
     | 'wizard_rejected'
@@ -188,7 +189,12 @@ function parseActivationAcknowledgement(
     if (!acknowledgedCwd || acknowledgedCwd !== projectDir) {
       return { activated: false, reason: 'wizard_cwd_mismatch' };
     }
-    return { activated: true, reason: 'wizard_activated' };
+    return {
+      activated: true,
+      reason: 'wizard_activated',
+      ...(typeof value.activationSha256 === 'string' && /^[0-9a-f]{64}$/.test(value.activationSha256)
+        ? { activationSha256: value.activationSha256 } : {}),
+    };
   } catch {
     return { activated: false, reason: 'wizard_unverified' };
   }
@@ -197,7 +203,8 @@ function parseActivationAcknowledgement(
 function parseClearAcknowledgement(
   stdout: string,
   projectDir: string,
-  sessionId: string
+  sessionId: string,
+  expectedActivationSha256?: string
 ): SessionContextClearance {
   try {
     const value: unknown = JSON.parse(stdout);
@@ -207,7 +214,8 @@ function parseClearAcknowledgement(
       value.ready !== false ||
       value.state !== 'missing' ||
       value.sourceClient !== SOURCE_CLIENT ||
-      value.sessionId !== sessionId
+      value.sessionId !== sessionId ||
+      (expectedActivationSha256 !== undefined && value.expectedActivationSha256 !== expectedActivationSha256)
     ) {
       return { cleared: false, reason: 'wizard_unverified' };
     }
@@ -365,11 +373,13 @@ export async function activateSessionWorkContext({
 export async function clearSessionWorkContext({
   projectDir,
   sessionId,
+  expectedActivationSha256,
   env = process.env,
   spawnImpl = nodeSpawn as unknown as SpawnLike,
 }: {
   projectDir?: string;
   sessionId?: string;
+  expectedActivationSha256?: string;
   env?: Env;
   spawnImpl?: SpawnLike;
 } = {}): Promise<SessionContextClearance> {
@@ -377,6 +387,9 @@ export async function clearSessionWorkContext({
   const normalizedProjectDir = normalizeAbsoluteHostPath(projectDir);
   if (!normalizedProjectDir || !normalizedId) {
     return { cleared: false, reason: 'project_directory_unavailable' };
+  }
+  if (expectedActivationSha256 !== undefined && !/^[0-9a-f]{64}$/.test(expectedActivationSha256)) {
+    return { cleared: false, reason: 'wizard_unverified' };
   }
   return runWizardJsonCommand<SessionContextClearance>({
     args: [
@@ -389,6 +402,7 @@ export async function clearSessionWorkContext({
       SOURCE_CLIENT,
       '--session-id',
       normalizedId,
+      ...(expectedActivationSha256 ? ['--if-activation-sha256', expectedActivationSha256] : []),
       '--json',
     ],
     env,
@@ -397,7 +411,7 @@ export async function clearSessionWorkContext({
       reason: reason as SessionContextClearance['reason'],
     }),
     parseSuccess: (stdout, cwd) =>
-      parseClearAcknowledgement(stdout, cwd, normalizedId),
+      parseClearAcknowledgement(stdout, cwd, normalizedId, expectedActivationSha256),
     projectDir: normalizedProjectDir,
     spawnImpl,
   });

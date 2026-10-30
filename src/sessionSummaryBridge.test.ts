@@ -15,6 +15,9 @@ describe('OpenCode session summary bridge', () => {
     expect(canonicalOpenCodeEvent('session.created')).toBe('SessionStart');
     expect(canonicalOpenCodeEvent('session.idle')).toBe('RunEnd');
     expect(canonicalOpenCodeEvent('session.deleted')).toBe('SessionEnd');
+    expect(canonicalOpenCodeEvent('session.abandoned')).toBe(
+      'SessionAbandoned'
+    );
     expect(canonicalOpenCodeEvent('chat.message')).toBe('UserPromptSubmit');
     expect(
       canonicalOpenCodeEvent('message.updated', {

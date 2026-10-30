@@ -22,13 +22,12 @@ import {
 } from './runtimeSessionContext';
 
 type PluginHooks = {
-  'experimental.chat.system.transform': (
-    input: { sessionID?: string },
-    output: { system: string[] }
-  ) => Promise<void>;
   'chat.message': (
     input: { sessionID: string; messageID?: string },
-    output: { parts: Array<Record<string, unknown>> }
+    output: {
+      message: { system?: string };
+      parts: Array<Record<string, unknown>>;
+    }
   ) => Promise<void>;
   event: (input: {
     event: Record<string, unknown> & { type: string };
@@ -203,7 +202,7 @@ describe('OrgXOpenCodePlugin', () => {
     expect(completed).toBe(true);
   });
 
-  it('injects compiled context into every model request without duplicating one output', async () => {
+  it('retries context before inference without resending it after model work', async () => {
     const hydrateContextPack = vi.fn(async () => ({
       ok: true,
       additionalContext: 'accepted OrgX decision context',
@@ -217,30 +216,33 @@ describe('OrgXOpenCodePlugin', () => {
         ORGX_WORKSPACE_ID: 'workspace-123',
       },
     });
-    const first = { system: ['native system'] };
-    const second = { system: ['native system'] };
+    const first = { message: { system: 'native system' }, parts: [] };
+    const retry = { message: {}, parts: [] };
+    const afterCompletion = { message: {}, parts: [] };
 
-    await hooks['experimental.chat.system.transform'](
-      { sessionID: 'session-1' },
-      first
-    );
-    await hooks['experimental.chat.system.transform'](
-      { sessionID: 'session-1' },
-      second
-    );
-    await hooks['experimental.chat.system.transform'](
-      { sessionID: 'session-1' },
-      second
-    );
+    await hooks['chat.message']({ sessionID: 'session-1' }, first);
+    await hooks['chat.message']({ sessionID: 'session-1' }, first);
+    await hooks['chat.message']({ sessionID: 'session-1' }, retry);
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          sessionID: 'session-1',
+          info: {
+            sessionID: 'session-1',
+            role: 'assistant',
+            time: { created: 1, completed: 2 },
+          },
+        },
+      },
+    });
+    await hooks['chat.message']({ sessionID: 'session-1' }, afterCompletion);
 
-    expect(first.system).toEqual([
-      'native system',
-      'accepted OrgX decision context',
-    ]);
-    expect(second.system).toEqual([
-      'native system',
-      'accepted OrgX decision context',
-    ]);
+    expect(first.message.system).toBe(
+      'native system\n\naccepted OrgX decision context'
+    );
+    expect(retry.message.system).toBe('accepted OrgX decision context');
+    expect(afterCompletion.message.system).toBeUndefined();
     expect(hydrateContextPack).toHaveBeenCalledTimes(1);
   });
 
@@ -273,46 +275,30 @@ describe('OrgXOpenCodePlugin', () => {
           reason: 'wizard_activated',
         },
       });
-      const output = { system: ['native system'] };
+      const output = { message: { system: 'native system' }, parts: [] };
 
-      await hooks['experimental.chat.system.transform'](
-        { sessionID: sessionId },
-        output
+      await hooks['chat.message']({ sessionID: sessionId }, output);
+
+      expect(output.message.system).toBe(
+        'native system\n\nexact dispatched task context'
       );
-
-      expect(output.system).toEqual([
-        'native system',
-        'exact dispatched task context',
-      ]);
-      expect(output.system).not.toContain('ambient workspace context');
+      expect(output.message.system).not.toContain('ambient workspace context');
     } finally {
       clearRuntimeSessionHydration('/work/repo', sessionId);
     }
   });
 
-  it('does not hydrate or inject into sessionless internal agent generation', async () => {
-    const hydrateContextPack = vi.fn(async () => ({
-      ok: true,
-      additionalContext: 'must remain session-bound',
-    } as const));
+  it('does not expose context through the auxiliary system-transform hook', async () => {
     const hooks = await loadHooks({
-      hydrateContextPack,
       logger: createLogger(),
-      env: {
-        ORGX_API_KEY: 'oxk_test',
-        ORGX_WORKSPACE_ID: 'workspace-123',
-      },
+      env: {},
     });
-    const output = { system: ['native system'] };
 
-    await hooks['experimental.chat.system.transform']({}, output);
-
-    expect(hydrateContextPack).not.toHaveBeenCalled();
-    expect(output.system).toEqual(['native system']);
+    expect(hooks).not.toHaveProperty('experimental.chat.system.transform');
   });
 
-  it('isolates hydration caches by native session and drops a deleted session', async () => {
-    const hydrateContextPack = vi.fn(async () => ({ ok: true } as const));
+  it('isolates hydration caches and does not restart a deleted native session', async () => {
+    const hydrateContextPack = vi.fn(async () => ({ ok: true, sessionContext: { activated: true, reason: 'wizard_activated', activationSha256: 'a'.repeat(64) } } as const));
     const clearSessionWorkContext = vi.fn(async () => ({
       cleared: true,
       reason: 'wizard_cleared',
@@ -339,18 +325,32 @@ describe('OrgXOpenCodePlugin', () => {
 
     await hooks.event({ event: sessionEvent('session.created', 'session-a') });
     await hooks.event({ event: sessionEvent('session.created', 'session-b') });
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          sessionID: 'session-a',
+          info: {
+            sessionID: 'session-a',
+            role: 'assistant',
+            time: { created: 1, completed: 2 },
+          },
+        },
+      },
+    });
     await hooks.event({ event: sessionEvent('session.deleted', 'session-a') });
     await hooks.event({ event: sessionEvent('session.created', 'session-a') });
 
     expect(
       hydrateContextPack.mock.calls.map(([call]) => call.sessionId)
-    ).toEqual(['session-a', 'session-b', 'session-a']);
+    ).toEqual(['session-a', 'session-b']);
     expect(clearSessionWorkContext).toHaveBeenCalledWith({
       env: {
         ORGX_WORKSPACE_ID: 'workspace-123',
       },
       projectDir: '/work/repo',
       sessionId: 'session-a',
+      expectedActivationSha256: 'a'.repeat(64),
     });
     expect(clearPrivateSessionContext).toHaveBeenCalledTimes(1);
     expect(clearPrivateSessionContext).toHaveBeenCalledWith({
@@ -388,6 +388,7 @@ describe('OrgXOpenCodePlugin', () => {
         {
           env,
           clearPrivateSessionContext,
+          bridgeSessionSummary: vi.fn(async () => ({ ok: true, activation_sha256: 'a'.repeat(64) })),
           logger: createLogger(),
         },
         {
@@ -395,6 +396,21 @@ describe('OrgXOpenCodePlugin', () => {
           serverUrl: new URL('http://localhost:4096'),
         }
       );
+
+      await hooks.event({ event: { type: 'session.created', properties: { info: { id: 'session-a' } } } });
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            sessionID: 'session-a',
+            info: {
+              sessionID: 'session-a',
+              role: 'assistant',
+              time: { created: 1, completed: 2 },
+            },
+          },
+        },
+      });
 
       await hooks.event({
         event: {
@@ -421,7 +437,7 @@ describe('OrgXOpenCodePlugin', () => {
     }
   });
 
-  it('waits for in-flight hydration before clearing the terminal session lease', async () => {
+  it('waits for in-flight hydration before releasing an unused terminal session lease', async () => {
     let finishHydration: (() => void) | undefined;
     const hydrateContextPack = vi.fn(
       () =>
@@ -433,9 +449,20 @@ describe('OrgXOpenCodePlugin', () => {
       cleared: true,
       reason: 'wizard_cleared',
     } as const));
+    const bridgeSessionSummary = vi.fn(async ({ nativeEvent }) =>
+      nativeEvent === 'session.abandoned'
+        ? {
+            ok: true,
+            state_persisted: true,
+            activation_released: true,
+            activation_release_state: 'released',
+          }
+        : { ok: true }
+    );
     const hooks = await loadHooks({
       hydrateContextPack,
       clearSessionWorkContext,
+      bridgeSessionSummary,
       logger: createLogger(),
       env: {},
     });
@@ -449,15 +476,16 @@ describe('OrgXOpenCodePlugin', () => {
       event: { type: 'session.deleted', properties },
     });
     await Promise.resolve();
-    expect(clearSessionWorkContext).not.toHaveBeenCalled();
+    expect(
+      bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)
+    ).not.toContain('session.abandoned');
 
     finishHydration?.();
     await Promise.all([creating, deleting]);
-    expect(clearSessionWorkContext).toHaveBeenCalledWith({
-      env: {},
-      projectDir: '/work/repo',
-      sessionId: 'session-race',
-    });
+    expect(clearSessionWorkContext).not.toHaveBeenCalled();
+    expect(
+      bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)
+    ).toContain('session.abandoned');
   });
 
   it('does not send a credential-bearing base override to any network path', async () => {
@@ -576,6 +604,7 @@ describe('OrgXOpenCodePlugin', () => {
     await hooks['chat.message'](
       { sessionID: 'session-1', messageID: 'message-1' },
       {
+        message: {},
         parts: [
           { type: 'text', text: 'Implement the work episode.' },
           { type: 'text', text: 'hidden', synthetic: true },
@@ -596,11 +625,12 @@ describe('OrgXOpenCodePlugin', () => {
 
     expect(bridgeSessionSummary.mock.calls.map(([call]) => call.nativeEvent)).toEqual([
       'session.idle',
+      'session.created',
       'chat.message',
       'tool.execute.before',
       'tool.execute.after',
     ]);
-    expect(bridgeSessionSummary.mock.calls[1][0].payload).toEqual({
+    expect(bridgeSessionSummary.mock.calls[2][0].payload).toEqual({
       sessionID: 'session-1',
       messageID: 'message-1',
       prompt: 'Implement the work episode.',
